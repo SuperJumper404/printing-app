@@ -1,0 +1,26 @@
+{
+    "printing": {
+        "direct_browser_printing": {
+            "dbp_ip": "192.168.1.139",
+            "dbp_port": 5152
+        }
+    },
+    "development": {
+        "loginUrl": "http://localhost:5005/baseurl/api/v1/login",
+        "shopInfoUrl": "http://localhost:5005/baseurl/api/v1/shopinfo",
+        "pullPrintingJobUrl": "http://localhost:5005/baseurl/api/v1/pullprintingjob",
+        "broker_mqtt": ""
+    },
+    "network": {
+        "loginUrl": "",
+        "broker_mqtt": ""
+    },
+    "staging": {
+        "loginUrl": "",
+        "broker_mqtt": ""
+    },
+    "production": {
+        "loginUrl": "",
+        "broker_mqtt": ""
+    }
+}

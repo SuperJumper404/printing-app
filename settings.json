@@ -1,0 +1,27 @@
+{
+	"printers": [
+		{
+			"name": "Freebox Server",
+			"type": "http",
+			"ip": "192.168.1.254",
+			"port": 80,
+			"protocol": "tcp",
+			"manufacturer": null,
+			"model": null,
+			"product": null,
+			"adminUrl": null,
+			"id": "192.168.1.254",
+			"online": true,
+			"ticketTypes": {
+				"caisse": false,
+				"cuisine": true
+			},
+			"protocols": {
+				"80": true,
+				"515": false,
+				"631": false,
+				"9100": true
+			}
+		}
+	]
+}

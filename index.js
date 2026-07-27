@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const bonjour = require("bonjour")();
 const Store = require("electron-store");
 const baseDir = app.isPackaged
@@ -454,6 +455,137 @@ function addPrintHistoryEntry(payload, result) {
   return entry;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function decodeEscPosPreview(base64Data) {
+  if (!base64Data) return "";
+  try {
+    return Buffer.from(base64Data, "base64")
+      .toString("utf8")
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  } catch {
+    return "";
+  }
+}
+
+function buildTicketPdfHtml(entry) {
+  const payload = entry.payload || {};
+  const escposPreview = decodeEscPosPreview(payload.dataFormatESCPOS);
+  const payloadWithoutEscpos = { ...payload };
+  delete payloadWithoutEscpos.dataFormatESCPOS;
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            color: #111827;
+            margin: 32px;
+          }
+          .header {
+            border-bottom: 2px solid #111827;
+            padding-bottom: 12px;
+            margin-bottom: 18px;
+          }
+          h1 {
+            font-size: 22px;
+            margin: 0 0 8px;
+          }
+          .meta {
+            color: #475569;
+            font-size: 12px;
+            line-height: 1.5;
+          }
+          .section {
+            margin-top: 18px;
+          }
+          .section h2 {
+            font-size: 14px;
+            margin: 0 0 8px;
+            color: #0f172a;
+          }
+          pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+            padding: 12px;
+            font-size: 11px;
+            line-height: 1.5;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${escapeHtml(payload.title || payload.orderNumber || payload.ticketNumber || "Ticket SmartEat")}</h1>
+          <div class="meta">
+            Date: ${escapeHtml(entry.printedAt)}<br />
+            Type: ${escapeHtml(entry.ticketType)}<br />
+            Statut: ${escapeHtml(entry.status)}<br />
+            Imprimantes: ${escapeHtml(entry.printerCount)} - Protocoles: ${escapeHtml(entry.protocolCount)}
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Apercu texte ESC/POS</h2>
+          <pre>${escapeHtml(escposPreview || "Aucun apercu texte lisible dans dataFormatESCPOS.")}</pre>
+        </div>
+
+        <div class="section">
+          <h2>Donnees du ticket</h2>
+          <pre>${escapeHtml(JSON.stringify(payloadWithoutEscpos, null, 2))}</pre>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async function openTicketPdf(historyId) {
+  const history = getPrintHistory();
+  const entry = history.find((ticket) => ticket.id === historyId);
+
+  if (!entry) {
+    throw new Error("Ticket introuvable dans l'historique");
+  }
+
+  const pdfWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      offscreen: true,
+    },
+  });
+
+  try {
+    const html = buildTicketPdfHtml(entry);
+    await pdfWindow.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+    );
+    const pdf = await pdfWindow.webContents.printToPDF({
+      printBackground: true,
+      marginsType: 0,
+      pageSize: "A4",
+    });
+    const safeId = entry.id.replace(/[^a-zA-Z0-9-_]/g, "-");
+    const pdfPath = path.join(app.getPath("temp"), `smarteat-ticket-${safeId}.pdf`);
+    await fs.promises.writeFile(pdfPath, pdf);
+    await shell.openPath(pdfPath);
+    return { success: true, pdfPath };
+  } finally {
+    pdfWindow.destroy();
+  }
+}
+
 async function printTicketPayload(payload) {
   const savedPrinters = store.get("printers", []);
   const ticketType = payload.ticketType;
@@ -521,6 +653,10 @@ ipcMain.handle("reprint-ticket", async (_, historyId) => {
     });
     throw new Error(historyEntry.error);
   }
+});
+
+ipcMain.handle("open-ticket-pdf", async (_, historyId) => {
+  return openTicketPdf(historyId);
 });
 
 ipcMain.handle("print-job", async (_, job) => {

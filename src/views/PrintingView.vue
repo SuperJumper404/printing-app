@@ -48,6 +48,13 @@
 
           <div class="ticket-actions">
             <button
+              class="btn-pdf"
+              :disabled="openingPdfId === ticket.id"
+              @click="openPdf(ticket)"
+            >
+              {{ openingPdfId === ticket.id ? "Ouverture..." : "Voir PDF" }}
+            </button>
+            <button
               class="btn-reprint"
               :disabled="reprintingId === ticket.id"
               @click="reprint(ticket)"
@@ -72,6 +79,7 @@ const userSession = ref(null);
 const history = ref([]);
 const loading = ref(true);
 const reprintingId = ref(null);
+const openingPdfId = ref(null);
 let pollingInterval = null;
 
 async function loadHistory() {
@@ -113,6 +121,17 @@ async function reprint(ticket) {
     console.error("Erreur reimpression:", error);
   } finally {
     reprintingId.value = null;
+  }
+}
+
+async function openPdf(ticket) {
+  openingPdfId.value = ticket.id;
+  try {
+    await ipcRenderer.invoke("open-ticket-pdf", ticket.id);
+  } catch (error) {
+    console.error("Erreur ouverture PDF:", error);
+  } finally {
+    openingPdfId.value = null;
   }
 }
 
@@ -166,7 +185,8 @@ onBeforeUnmount(() => {
 }
 
 .btn-refresh,
-.btn-reprint {
+.btn-reprint,
+.btn-pdf {
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -185,7 +205,14 @@ onBeforeUnmount(() => {
   padding: 8px 14px;
 }
 
-.btn-reprint:disabled {
+.btn-pdf {
+  background: #334155;
+  color: #fff;
+  padding: 8px 14px;
+}
+
+.btn-reprint:disabled,
+.btn-pdf:disabled {
   cursor: wait;
   opacity: 0.7;
 }
@@ -289,6 +316,7 @@ onBeforeUnmount(() => {
 
 .ticket-actions {
   display: flex;
+  gap: 10px;
   justify-content: flex-end;
   margin-top: 14px;
 }

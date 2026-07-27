@@ -429,6 +429,117 @@ function testPrinter() {
   console.log("Les Imprimantes a test", printersToTest);
 }
 
+function getPrintHistory() {
+  return store.get("printHistory", []);
+}
+
+function savePrintHistory(history) {
+  store.set("printHistory", history.slice(0, 100));
+}
+
+function addPrintHistoryEntry(payload, result) {
+  const history = getPrintHistory();
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    printedAt: new Date().toISOString(),
+    ticketType: payload?.ticketType || "unknown",
+    status: result.success ? "success" : "error",
+    printerCount: result.printerCount || 0,
+    protocolCount: result.protocolCount || 0,
+    error: result.error || null,
+    payload,
+  };
+
+  savePrintHistory([entry, ...history]);
+  return entry;
+}
+
+async function printTicketPayload(payload) {
+  const savedPrinters = store.get("printers", []);
+  const ticketType = payload.ticketType;
+  const activePrinters = savedPrinters.filter(
+    (printer) => printer.ticketTypes?.[ticketType]
+  );
+  const printTasks = [];
+
+  activePrinters.forEach((printer) => {
+    const activeProtocols = Object.entries(printer.protocols || {})
+      .filter(([_, enabled]) => enabled)
+      .map(([protocol]) => protocol);
+
+    activeProtocols.forEach((activeProtocol) => {
+      if (printer.connectionType === "bluetooth") {
+        printTasks.push(
+          printBluetooth(printer, payload.dataFormatESCPOS, activeProtocol)
+        );
+        return;
+      }
+
+      if (printer.connectionType === "usb") {
+        printTasks.push(printUsb(printer, payload.dataFormatESCPOS, activeProtocol));
+        return;
+      }
+
+      const port = parseInt(activeProtocol, 10);
+      if (port === 9100) {
+        printTasks.push(printESCPOS(printer.ip, payload.dataFormatESCPOS));
+      }
+    });
+  });
+
+  await Promise.all(printTasks);
+
+  return {
+    printerCount: activePrinters.length,
+    protocolCount: printTasks.length,
+  };
+}
+
+ipcMain.handle("get-print-history", () => {
+  return getPrintHistory();
+});
+
+ipcMain.handle("reprint-ticket", async (_, historyId) => {
+  const history = getPrintHistory();
+  const entry = history.find((ticket) => ticket.id === historyId);
+
+  if (!entry) {
+    throw new Error("Ticket introuvable dans l'historique");
+  }
+
+  try {
+    const result = await printTicketPayload(entry.payload);
+    const historyEntry = addPrintHistoryEntry(entry.payload, {
+      success: true,
+      ...result,
+    });
+    return { success: true, historyEntry };
+  } catch (error) {
+    const historyEntry = addPrintHistoryEntry(entry.payload, {
+      success: false,
+      error: error.message,
+    });
+    throw new Error(historyEntry.error);
+  }
+});
+
+ipcMain.handle("print-job", async (_, job) => {
+  try {
+    const result = await printTicketPayload(job);
+    const historyEntry = addPrintHistoryEntry(job, {
+      success: true,
+      ...result,
+    });
+    return { success: true, historyEntry };
+  } catch (error) {
+    const historyEntry = addPrintHistoryEntry(job, {
+      success: false,
+      error: error.message,
+    });
+    return { success: false, error: error.message, historyEntry };
+  }
+});
+
 ipcMain.on("test-printer", (event, config) => {
   console.log("🧾 Test d’impression reçu :", config);
 
@@ -653,51 +764,26 @@ appServer.get("/test", (req, res) => {
 // 🖨️ ENDPOINT 2 — Impression
 // ———————————————————————————————
 appServer.post("/print", async (req, res) => {
-  const savedPrinters = store.get("printers", []);
-  const ticketType = req.body.ticketType;
-  const activePrinters = savedPrinters.filter(
-    (printer) => printer.ticketTypes?.[ticketType]
-  );
-
   try {
-    const printTasks = [];
-
-    activePrinters.forEach((printer) => {
-      const activeProtocols = Object.entries(printer.protocols || {})
-        .filter(([_, enabled]) => enabled)
-        .map(([protocol]) => protocol);
-
-      activeProtocols.forEach((activeProtocol) => {
-        if (printer.connectionType === "bluetooth") {
-          printTasks.push(
-            printBluetooth(printer, req.body.dataFormatESCPOS, activeProtocol)
-          );
-          return;
-        }
-
-        if (printer.connectionType === "usb") {
-          printTasks.push(
-            printUsb(printer, req.body.dataFormatESCPOS, activeProtocol)
-          );
-          return;
-        }
-
-        const port = parseInt(activeProtocol, 10);
-        if (port === 9100) {
-          printTasks.push(printESCPOS(printer.ip, req.body.dataFormatESCPOS));
-        }
-      });
+    const result = await printTicketPayload(req.body);
+    const historyEntry = addPrintHistoryEntry(req.body, {
+      success: true,
+      ...result,
     });
 
-    await Promise.all(printTasks);
     console.log("TEXT a Imprimer", req.body);
     res.json({
       success: true,
-      message: `Impression envoyee a ${printTasks.length} protocole(s)`,
+      historyEntry,
+      message: `Impression envoyee a ${result.protocolCount} protocole(s)`,
     });
   } catch (err) {
+    const historyEntry = addPrintHistoryEntry(req.body, {
+      success: false,
+      error: err.message,
+    });
     console.error("Erreur impression:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message, historyEntry });
   }
 });
 

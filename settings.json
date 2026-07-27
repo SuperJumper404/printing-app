@@ -11,17 +11,76 @@
 			"product": null,
 			"adminUrl": null,
 			"id": "192.168.1.254",
-			"online": true,
+			"connectionType": "network",
+			"availableProtocols": {
+				"80": true,
+				"515": true,
+				"631": true,
+				"9100": true
+			},
+			"online": false,
 			"ticketTypes": {
 				"caisse": false,
-				"cuisine": true
+				"cuisine": false
 			},
 			"protocols": {
-				"80": true,
+				"80": false,
 				"515": false,
 				"631": false,
-				"9100": true
+				"9100": false
+			}
+		},
+		{
+			"id": "bluetooth-serial-COM3",
+			"name": "Lien s�rie sur Bluetooth standard (COM3)",
+			"type": "bluetooth",
+			"connectionType": "bluetooth",
+			"portName": "COM3",
+			"protocol": "serial",
+			"description": "Lien s�rie sur Bluetooth standard",
+			"pnpDeviceId": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_VID&000205AC_PID&0239\\7&141078A&0&12190BDDA354_C00000000",
+			"availableProtocols": {
+				"bluetoothSerial": true,
+				"windowsSpooler": false
+			},
+			"online": false,
+			"ticketTypes": {
+				"caisse": false,
+				"cuisine": false
+			},
+			"protocols": {
+				"bluetoothSerial": false,
+				"windowsSpooler": false
+			}
+		},
+		{
+			"id": "bluetooth-serial-COM4",
+			"name": "Lien s�rie sur Bluetooth standard (COM4)",
+			"type": "bluetooth",
+			"connectionType": "bluetooth",
+			"portName": "COM4",
+			"protocol": "serial",
+			"description": "Lien s�rie sur Bluetooth standard",
+			"pnpDeviceId": "BTHENUM\\{00001101-0000-1000-8000-00805F9B34FB}_LOCALMFG&0000\\7&141078A&0&000000000000_00000002",
+			"availableProtocols": {
+				"bluetoothSerial": true,
+				"windowsSpooler": false
+			},
+			"online": false,
+			"ticketTypes": {
+				"caisse": false,
+				"cuisine": false
+			},
+			"protocols": {
+				"bluetoothSerial": false,
+				"windowsSpooler": false
 			}
 		}
-	]
+	],
+	"userSession": {
+		"email": "admin@gmail.com",
+		"shopid": 1,
+		"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkBnbWFpbC5jb20iLCJhY2Nlc3MiOjAsInNob3BpZCI6MSwiaWF0IjoxNzc1MzcwODg3LCJleHAiOjE3NzU0NTcyODd9.2AnzStzE_k1ZROgEJcIfmQvSb2ZweRZWA8HvCeVc2Xc",
+		"shop_name": "Restaurant Démo"
+	}
 }

@@ -464,12 +464,68 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function decodeEscPosPreview(base64Data) {
-  if (!base64Data) return "";
+function stripEscPosCommands(buffer) {
+  const output = [];
+
+  for (let i = 0; i < buffer.length; i++) {
+    const byte = buffer[i];
+    const next = buffer[i + 1];
+
+    if (byte === 0x1b) {
+      if ([0x40, 0x45, 0x61, 0x74, 0x21, 0x4d, 0x33, 0x20].includes(next)) {
+        i += next === 0x40 ? 1 : 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (byte === 0x1d) {
+      if ([0x21, 0x56, 0x42, 0x48, 0x68, 0x77].includes(next)) {
+        i += next === 0x56 ? 2 : 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (byte === 0x0a || byte === 0x0d || byte >= 0x20) {
+      output.push(byte);
+    }
+  }
+
+  return Buffer.from(output);
+}
+
+function normalizeTicketText(text) {
+  return text
+    .replace(/\x80/g, "EUR")
+    .replace(/\u00a0/g, " ")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{4,}$/g, "\n");
+}
+
+function getTicketPrintableText(payload) {
+  if (!payload) return "";
+
+  const directText =
+    payload.text ||
+    payload.ticketText ||
+    payload.content ||
+    payload.printableText ||
+    payload.rawText;
+
+  if (directText) return normalizeTicketText(String(directText));
+
+  if (!payload.dataFormatESCPOS) return "";
+
   try {
-    return Buffer.from(base64Data, "base64")
-      .toString("utf8")
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+    const printableBuffer = stripEscPosCommands(
+      Buffer.from(payload.dataFormatESCPOS, "base64")
+    );
+    return normalizeTicketText(printableBuffer.toString("latin1"));
   } catch {
     return "";
   }
@@ -477,9 +533,7 @@ function decodeEscPosPreview(base64Data) {
 
 function buildTicketPdfHtml(entry) {
   const payload = entry.payload || {};
-  const escposPreview = decodeEscPosPreview(payload.dataFormatESCPOS);
-  const payloadWithoutEscpos = { ...payload };
-  delete payloadWithoutEscpos.dataFormatESCPOS;
+  const ticketText = getTicketPrintableText(payload);
 
   return `
     <!doctype html>
@@ -487,64 +541,35 @@ function buildTicketPdfHtml(entry) {
       <head>
         <meta charset="utf-8" />
         <style>
+          @page {
+            margin: 0;
+          }
           body {
-            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f3f4f6;
             color: #111827;
-            margin: 32px;
           }
-          .header {
-            border-bottom: 2px solid #111827;
-            padding-bottom: 12px;
-            margin-bottom: 18px;
-          }
-          h1 {
-            font-size: 22px;
-            margin: 0 0 8px;
-          }
-          .meta {
-            color: #475569;
-            font-size: 12px;
-            line-height: 1.5;
-          }
-          .section {
-            margin-top: 18px;
-          }
-          .section h2 {
-            font-size: 14px;
-            margin: 0 0 8px;
-            color: #0f172a;
+          .page {
+            width: 80mm;
+            min-height: 100vh;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 6mm 5mm;
+            box-sizing: border-box;
           }
           pre {
+            margin: 0;
             white-space: pre-wrap;
             word-break: break-word;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: #f8fafc;
-            padding: 12px;
+            font-family: "Consolas", "Courier New", monospace;
             font-size: 11px;
-            line-height: 1.5;
+            line-height: 1.28;
           }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1>${escapeHtml(payload.title || payload.orderNumber || payload.ticketNumber || "Ticket SmartEat")}</h1>
-          <div class="meta">
-            Date: ${escapeHtml(entry.printedAt)}<br />
-            Type: ${escapeHtml(entry.ticketType)}<br />
-            Statut: ${escapeHtml(entry.status)}<br />
-            Imprimantes: ${escapeHtml(entry.printerCount)} - Protocoles: ${escapeHtml(entry.protocolCount)}
-          </div>
-        </div>
-
-        <div class="section">
-          <h2>Apercu texte ESC/POS</h2>
-          <pre>${escapeHtml(escposPreview || "Aucun apercu texte lisible dans dataFormatESCPOS.")}</pre>
-        </div>
-
-        <div class="section">
-          <h2>Donnees du ticket</h2>
-          <pre>${escapeHtml(JSON.stringify(payloadWithoutEscpos, null, 2))}</pre>
+        <div class="page">
+          <pre>${escapeHtml(ticketText || "Ticket vide ou non lisible.")}</pre>
         </div>
       </body>
     </html>

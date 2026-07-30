@@ -56,6 +56,12 @@
     "directories": {
       "output": "dist6"
     },
+    "extraResources": [
+      {
+        "from": "public/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "win": {
       "target": [
         "nsis",

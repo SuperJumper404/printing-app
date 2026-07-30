@@ -45,6 +45,7 @@ const shouldStartHidden = process.argv.includes("--hidden");
 
 function getAppIconPath() {
   const iconCandidates = [
+    path.join(process.resourcesPath || "", "icon.png"),
     path.join(__dirname, "public", "icon.png"),
     path.join(__dirname, "build", "icon.ico"),
     path.join(__dirname, "public", "icon.ico"),
@@ -145,7 +146,11 @@ function getTrayIcon() {
   }
 
   const icon = nativeImage.createFromPath(iconPath);
-  return icon.isEmpty() ? nativeImage.createEmpty() : icon;
+  if (icon.isEmpty()) return nativeImage.createEmpty();
+
+  return process.platform === "win32"
+    ? icon.resize({ width: 16, height: 16 })
+    : icon;
 }
 
 function showMainWindow() {

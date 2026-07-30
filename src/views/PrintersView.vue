@@ -144,21 +144,25 @@
 import { ref, onMounted, onBeforeUnmount } from "vue";
 const { ipcRenderer } = window.require("electron");
 
-let cachedPrinters = null;
-let cachedUseDiscoveryFilters = true;
+window.__smarteatPrinterDiscoveryCache ||= {
+  printers: null,
+  useDiscoveryFilters: true,
+};
+
 const statusTimers = new Set();
 
-const printers = ref(cachedPrinters ? clone(cachedPrinters) : []);
-const loading = ref(!cachedPrinters);
-const useDiscoveryFilters = ref(cachedUseDiscoveryFilters);
+const printerCache = window.__smarteatPrinterDiscoveryCache;
+const printers = ref(printerCache.printers ? clone(printerCache.printers) : []);
+const loading = ref(!printerCache.printers);
+const useDiscoveryFilters = ref(printerCache.useDiscoveryFilters);
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
 function updatePrinterCache() {
-  cachedPrinters = clone(printers.value);
-  cachedUseDiscoveryFilters = useDiscoveryFilters.value;
+  printerCache.printers = clone(printers.value);
+  printerCache.useDiscoveryFilters = useDiscoveryFilters.value;
 }
 
 const networkProtocols = [
@@ -310,8 +314,9 @@ function buildDefaultProtocols(printer, savedCfg) {
 }
 
 async function loadPrinters(forceDiscovery = false) {
-  if (!forceDiscovery && cachedPrinters) {
-    printers.value = clone(cachedPrinters);
+  if (!forceDiscovery && printerCache.printers) {
+    printers.value = clone(printerCache.printers);
+    useDiscoveryFilters.value = printerCache.useDiscoveryFilters;
     loading.value = false;
     return;
   }
@@ -349,7 +354,7 @@ async function loadPrinters(forceDiscovery = false) {
 }
 
 onMounted(async () => {
-  const hadCachedPrinters = Boolean(cachedPrinters);
+  const hadCachedPrinters = Boolean(printerCache.printers);
   await loadPrinters(false);
   if (hadCachedPrinters) {
     for (const printer of printers.value) updateStatus(printer);

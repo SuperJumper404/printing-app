@@ -41,6 +41,7 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 let updateEventsRegistered = false;
+const shouldStartHidden = process.argv.includes("--hidden");
 
 function getAppIconPath() {
   const iconCandidates = [
@@ -109,6 +110,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
+    show: !shouldStartHidden,
     icon: getAppIconPath() || undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -261,13 +263,21 @@ function checkForUpdates({ manual = false } = {}) {
   });
 }
 
+function configureAutoLaunch() {
+  if (process.platform !== "win32") return;
+
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    path: app.getPath("exe"),
+    args: ["--hidden"],
+  });
+}
+
 app.setAppUserModelId("com.smarteat.printeragent");
-app.setLoginItemSettings({
-  openAtLogin: true,
-});
 app.whenReady().then(() => {
   console.log("📦 Contenu complet du Store au démarrage:");
   console.log(JSON.stringify(store.store, null, 2));
+  configureAutoLaunch();
   createWindow();
   createTray();
   checkForUpdates();

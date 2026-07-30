@@ -16,6 +16,8 @@ pnpm-lock.yaml
 # Build output
 dist/
 build/
+!build/
+!build/icon.ico
 out/
 coverage/
 

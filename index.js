@@ -1,8 +1,18 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  dialog,
+  ipcMain,
+  nativeImage,
+  shell,
+} = require("electron");
 const path = require("path");
 const fs = require("fs");
 const bonjour = require("bonjour")();
 const Store = require("electron-store");
+const { autoUpdater } = require("electron-updater");
 const baseDir = app.isPackaged
   ? path.dirname(app.getPath("exe")) // dossier de l'exe
   : process.cwd();
@@ -26,6 +36,11 @@ const escpos = require("escpos");
 const Network = require("escpos-network");
 escpos.Network = Network;
 console.log("Process Platform", process.platform);
+
+let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+let updateEventsRegistered = false;
 
 function runPowerShell(script, env = {}) {
   return new Promise((resolve, reject) => {
@@ -80,7 +95,7 @@ async function runPowerShellJson(script, env = {}) {
 // 🪟 Fenêtre principale
 // -------------------------------------------------------------
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
     webPreferences: {
@@ -90,16 +105,155 @@ function createWindow() {
     },
   });
 
+  mainWindow.on("close", (event) => {
+    if (!isQuitting && process.platform === "win32") {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   if (process.env.NODE_ENV === "development") {
-    win.loadURL("http://localhost:5173");
+    mainWindow.loadURL("http://localhost:5173");
   } else {
     console.log(
       "file fronted",
       path.join(__dirname, "frontend/dist/index.html")
     );
-    win.loadFile(path.join(__dirname, "frontend/dist/index.html"));
+    mainWindow.loadFile(path.join(__dirname, "frontend/dist/index.html"));
   }
 }
+
+function getTrayIcon() {
+  const iconCandidates = [
+    path.join(__dirname, "build", "icon.ico"),
+    path.join(__dirname, "public", "icon.ico"),
+    path.join(__dirname, "public", "favicon.ico"),
+  ];
+  const iconPath = iconCandidates.find((candidate) => fs.existsSync(candidate));
+
+  if (!iconPath) {
+    return nativeImage.createEmpty();
+  }
+
+  const icon = nativeImage.createFromPath(iconPath);
+  return icon.isEmpty() ? nativeImage.createEmpty() : icon;
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return;
+
+  tray = new Tray(getTrayIcon());
+  tray.setToolTip("SmartEat Printer Agent");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Ouvrir SmartEat Printer Agent",
+        click: showMainWindow,
+      },
+      {
+        label: "Verifier les mises a jour",
+        click: () => checkForUpdates({ manual: true }),
+      },
+      { type: "separator" },
+      {
+        label: "Quitter",
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ])
+  );
+
+  tray.on("click", showMainWindow);
+  tray.on("double-click", showMainWindow);
+}
+
+function registerUpdateEvents() {
+  if (updateEventsRegistered) return;
+  updateEventsRegistered = true;
+
+  autoUpdater.autoDownload = false;
+
+  autoUpdater.on("update-available", async (info) => {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Mise a jour disponible",
+      message: `Une nouvelle version est disponible (${info.version}).`,
+      detail: "Voulez-vous la telecharger maintenant ?",
+      buttons: ["Telecharger", "Plus tard"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (result.response === 0) {
+      autoUpdater.downloadUpdate();
+    }
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    console.log("Aucune mise a jour disponible.");
+  });
+
+  autoUpdater.on("update-downloaded", async () => {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Mise a jour prete",
+      message: "La mise a jour est telechargee.",
+      detail: "Redemarrez l'application pour installer la nouvelle version.",
+      buttons: ["Redemarrer et installer", "Plus tard"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (result.response === 0) {
+      isQuitting = true;
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  autoUpdater.on("error", (error) => {
+    console.error("Erreur de mise a jour:", error);
+  });
+}
+
+function checkForUpdates({ manual = false } = {}) {
+  if (!app.isPackaged) {
+    if (manual) {
+      dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Mises a jour",
+        message:
+          "Les mises a jour automatiques sont actives seulement dans l'application installee.",
+      });
+    }
+    return;
+  }
+
+  registerUpdateEvents();
+  autoUpdater.checkForUpdates().catch((error) => {
+    console.error("Impossible de verifier les mises a jour:", error);
+    if (manual) {
+      dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "Mise a jour impossible",
+        message: "Impossible de verifier les mises a jour pour le moment.",
+      });
+    }
+  });
+}
+
 app.setLoginItemSettings({
   openAtLogin: true,
 });
@@ -107,9 +261,12 @@ app.whenReady().then(() => {
   console.log("📦 Contenu complet du Store au démarrage:");
   console.log(JSON.stringify(store.store, null, 2));
   createWindow();
+  createTray();
+  checkForUpdates();
 });
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin") return;
+  app.quit();
 });
 
 async function discoverNetworkPrinters(timeout = 8000) {

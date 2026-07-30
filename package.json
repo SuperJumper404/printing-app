@@ -32,7 +32,6 @@
     "escpos-network": "^3.0.0-alpha.5",
     "express": "^5.1.0",
     "ipp": "^2.0.1",
-    "node": "^25.1.0",
     "node-fetch": "^2.7.0",
     "node-gyp": "^11.5.0",
     "node-pre-gyp": "^0.17.0",
@@ -42,6 +41,16 @@
   "build": {
     "appId": "com.smarteat.printeragent",
     "productName": "SmartEat Printer Agent",
+    "files": [
+      "index.js",
+      "package.json",
+      "frontend/dist/**/*",
+      "!*.rar",
+      "!settings.json",
+      "!dist6/**/*",
+      "!node_modules/node/**/*",
+      "!node_modules/.cache/**/*"
+    ],
     "directories": {
       "output": "dist6"
     },

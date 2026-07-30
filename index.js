@@ -49,8 +49,23 @@ function runPowerShell(script, env = {}) {
   });
 }
 
-async function runPowerShellJson(script) {
-  const output = await runPowerShell(script);
+function normalizeSerialPortName(portName, fallbackPortName = "") {
+  const cleanedPortName = String(portName || "").replace(/:$/, "");
+
+  const directPort = cleanedPortName.match(/^COM\d+$/i)?.[0];
+  if (directPort) return directPort.toUpperCase();
+
+  const fallbackComPort = String(fallbackPortName || "").match(/COM\d+/i)?.[0];
+  if (fallbackComPort) return fallbackComPort.toUpperCase();
+
+  const embeddedComPort = cleanedPortName.match(/COM\d+/i)?.[0];
+  if (embeddedComPort) return embeddedComPort.toUpperCase();
+
+  return cleanedPortName;
+}
+
+async function runPowerShellJson(script, env = {}) {
+  const output = await runPowerShell(script, env);
   if (!output) return [];
   try {
     const data = JSON.parse(output);
@@ -144,7 +159,7 @@ async function discoverNetworkPrinters(timeout = 8000) {
   });
 }
 
-async function discoverBluetoothPrinters() {
+async function discoverBluetoothPrinters({ useFilters = true } = {}) {
   if (process.platform !== "win32") {
     console.log("Bluetooth discovery is only implemented on Windows.");
     return [];
@@ -153,6 +168,7 @@ async function discoverBluetoothPrinters() {
   const script = `
     $serialPorts = Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue |
       Where-Object {
+        $env:SMARTEAT_USE_FILTERS -eq 'false' -or
         $_.Name -match 'Bluetooth|BTH|Standard Serial over Bluetooth' -or
         $_.Description -match 'Bluetooth|BTH|Standard Serial over Bluetooth' -or
         $_.PNPDeviceID -match 'BTH|Bluetooth'
@@ -169,6 +185,7 @@ async function discoverBluetoothPrinters() {
 
     $printerQueues = Get-Printer -ErrorAction SilentlyContinue |
       Where-Object {
+        $env:SMARTEAT_USE_FILTERS -eq 'false' -or
         $_.PortName -match 'BTH|Bluetooth|COM[0-9]+' -or
         $_.Name -match 'Bluetooth'
       } |
@@ -186,7 +203,9 @@ async function discoverBluetoothPrinters() {
     @($serialPorts + $printerQueues) | ConvertTo-Json -Depth 4
   `;
 
-  const devices = await runPowerShellJson(script);
+  const devices = await runPowerShellJson(script, {
+    SMARTEAT_USE_FILTERS: String(useFilters),
+  });
   const printers = new Map();
 
   for (const device of devices) {
@@ -201,10 +220,10 @@ async function discoverBluetoothPrinters() {
         protocol: "serial",
         description: device.description || null,
         pnpDeviceId: device.pnpDeviceId || null,
-        availableProtocols: {
-          bluetoothSerial: true,
-          windowsSpooler: false,
-        },
+          availableProtocols: {
+            bluetoothSerial: true,
+            bluetoothWindowsSpooler: false,
+          },
       });
     }
 
@@ -220,10 +239,10 @@ async function discoverBluetoothPrinters() {
         protocol: "windows-spooler",
         driverName: device.driverName || null,
         status: device.status || null,
-        availableProtocols: {
-          bluetoothSerial: false,
-          windowsSpooler: true,
-        },
+          availableProtocols: {
+            bluetoothSerial: false,
+            bluetoothWindowsSpooler: true,
+          },
       });
     }
   }
@@ -231,7 +250,7 @@ async function discoverBluetoothPrinters() {
   return [...printers.values()];
 }
 
-async function discoverUsbPrinters() {
+async function discoverUsbPrinters({ useFilters = true } = {}) {
   if (process.platform !== "win32") {
     console.log("USB discovery is only implemented on Windows.");
     return [];
@@ -240,6 +259,7 @@ async function discoverUsbPrinters() {
   const script = `
     $serialPorts = Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue |
       Where-Object {
+        $env:SMARTEAT_USE_FILTERS -eq 'false' -or
         (
           $_.PNPDeviceID -match 'USB' -or
           $_.Name -match 'USB' -or
@@ -261,6 +281,7 @@ async function discoverUsbPrinters() {
 
     $printerQueues = Get-Printer -ErrorAction SilentlyContinue |
       Where-Object {
+        $env:SMARTEAT_USE_FILTERS -eq 'false' -or
         (
           $_.PortName -match 'USB|DOT4' -or
           $_.DriverName -match 'USB' -or
@@ -283,7 +304,9 @@ async function discoverUsbPrinters() {
     @($serialPorts + $printerQueues) | ConvertTo-Json -Depth 4
   `;
 
-  const devices = await runPowerShellJson(script);
+  const devices = await runPowerShellJson(script, {
+    SMARTEAT_USE_FILTERS: String(useFilters),
+  });
   const printers = new Map();
 
   for (const device of devices) {
@@ -298,10 +321,10 @@ async function discoverUsbPrinters() {
         protocol: "serial",
         description: device.description || null,
         pnpDeviceId: device.pnpDeviceId || null,
-        availableProtocols: {
-          usbSerial: true,
-          windowsSpooler: false,
-        },
+          availableProtocols: {
+            usbSerial: true,
+            usbWindowsSpooler: false,
+          },
       });
     }
 
@@ -317,15 +340,94 @@ async function discoverUsbPrinters() {
         protocol: "windows-spooler",
         driverName: device.driverName || null,
         status: device.status || null,
-        availableProtocols: {
-          usbSerial: false,
-          windowsSpooler: true,
-        },
+          availableProtocols: {
+            usbSerial: false,
+            usbWindowsSpooler: true,
+          },
       });
     }
   }
 
   return [...printers.values()];
+}
+
+async function discoverLocalPrinterQueues({ useFilters = true } = {}) {
+  if (process.platform !== "win32") {
+    console.log("Local printer queue discovery is only implemented on Windows.");
+    return [];
+  }
+
+  const script = `
+    $printerQueues = Get-Printer -ErrorAction SilentlyContinue |
+      Where-Object {
+        $env:SMARTEAT_USE_FILTERS -eq 'false' -or
+        $_.Name -match 'TSP|Star|EPSON|TM-|Zebra|Bixolon|Citizen|POS|Receipt|Ticket|NIIMBOT|NIMBOT' -or
+        $_.DriverName -match 'TSP|Star|EPSON|TM-|Zebra|Bixolon|Citizen|POS|Receipt|Ticket|Generic / Text' -or
+        $_.PortName -match '^test$|^test:|COM[0-9]+:|TSP|Star|Ticket|Receipt|POS'
+      } |
+      ForEach-Object {
+        [pscustomobject]@{
+          name = $_.Name
+          printerName = $_.Name
+          portName = $_.PortName
+          driverName = $_.DriverName
+          status = $_.PrinterStatus
+        }
+      }
+
+    $starVirtualPorts = @()
+    $starConfigPath = 'C:\\ProgramData\\StarMicronics\\TSP100\\Configuration\\portemu_config.xml'
+    if (Test-Path $starConfigPath) {
+      try {
+        [xml]$starConfig = Get-Content $starConfigPath
+        $pairs = $starConfig.configuration.PortEmulator.ChildNodes |
+          Where-Object { $_.Name -match '^Pair[0-9]*$' }
+        foreach ($pair in $pairs) {
+          $emulated = ($pair.setting | Where-Object { $_.name -eq 'emulated' }).'#text'
+          $emulation = ($pair.setting | Where-Object { $_.name -eq 'emulation' }).'#text'
+          $real = ($pair.setting | Where-Object { $_.name -eq 'real' }).'#text'
+          if ($emulated) {
+            $starVirtualPorts += [pscustomobject]@{
+              name = "Star Virtual Port $emulated"
+              printerName = $null
+              portName = $emulated
+              realPortName = $real
+              emulation = $emulation
+              driverName = 'Star TSP100 Port Emulator'
+              status = 'Normal'
+              source = 'star-port-emulator'
+            }
+          }
+        }
+      } catch {}
+    }
+
+    @($printerQueues + $starVirtualPorts) | ConvertTo-Json -Depth 4
+  `;
+
+  const devices = await runPowerShellJson(script, {
+    SMARTEAT_USE_FILTERS: String(useFilters),
+  });
+
+  return devices.map((device) => ({
+    id: device.source === "star-port-emulator"
+      ? `star-port-emulator-${device.portName}`
+      : `local-spooler-${device.printerName}`,
+    name: device.name || device.printerName || device.portName,
+    type: "local",
+    connectionType: "local",
+    printerName: device.printerName || null,
+    portName: device.portName || null,
+    realPortName: device.realPortName || null,
+    effectivePortName: normalizeSerialPortName(device.portName, device.realPortName),
+    protocol: device.emulation || device.source || "local",
+    driverName: device.driverName || null,
+    status: device.status || null,
+    availableProtocols: {
+      localSerial: Boolean(device.portName),
+      localWindowsSpooler: Boolean(device.printerName),
+    },
+  }));
 }
 
 ipcMain.handle("check-printer-online", async (_, { ip, port }) => {
@@ -383,6 +485,23 @@ ipcMain.handle("check-usb-printer-online", async (_, printer) => {
   return output.toLowerCase() === "true";
 });
 
+ipcMain.handle("check-local-printer-online", async (_, printer) => {
+  if (process.platform !== "win32") return false;
+  if (printer?.portName && !printer?.printerName) return true;
+  if (!printer?.printerName) return false;
+
+  const script = `
+    $printer = Get-Printer -Name $env:SMARTEAT_PRINTER_NAME -ErrorAction SilentlyContinue
+    if ($null -eq $printer) { 'false' } else { 'true' }
+  `;
+
+  const output = await runPowerShell(script, {
+    SMARTEAT_PRINTER_NAME: printer.printerName,
+  });
+
+  return output.toLowerCase() === "true";
+});
+
 // 📂 Lecture des préférences sauvegardées
 ipcMain.handle("get-saved-printers", () => {
   const savedPrinters = store.get("printers", []);
@@ -391,10 +510,12 @@ ipcMain.handle("get-saved-printers", () => {
 // -------------------------------------------------------------
 // 📡 Communication avec le front-end (printer.html)
 // -------------------------------------------------------------
-ipcMain.handle("discover-printers", async () => {
+ipcMain.handle("discover-printers", async (_, options = {}) => {
+  const useFilters = options.useFilters !== false;
   const networkPrinters = await discoverNetworkPrinters();
-  const bluetoothPrinters = await discoverBluetoothPrinters();
-  const usbPrinters = await discoverUsbPrinters();
+  const bluetoothPrinters = await discoverBluetoothPrinters({ useFilters });
+  const usbPrinters = await discoverUsbPrinters({ useFilters });
+  const localPrinters = await discoverLocalPrinterQueues({ useFilters });
 
   return [
     ...networkPrinters.map((printer) => ({
@@ -410,6 +531,7 @@ ipcMain.handle("discover-printers", async () => {
     })),
     ...bluetoothPrinters,
     ...usbPrinters,
+    ...localPrinters,
   ];
 });
 
@@ -637,6 +759,13 @@ async function printTicketPayload(payload) {
         return;
       }
 
+      if (printer.connectionType === "local") {
+        printTasks.push(
+          printLocal(printer, payload.dataFormatESCPOS, activeProtocol)
+        );
+        return;
+      }
+
       const port = parseInt(activeProtocol, 10);
       if (port === 9100) {
         printTasks.push(printESCPOS(printer.ip, payload.dataFormatESCPOS));
@@ -753,6 +882,23 @@ ipcMain.on("test-printer", (event, config) => {
     return;
   }
 
+  if (currentPrinter.connectionType === "local") {
+    testLocalPrinter(currentPrinter)
+      .then(() => {
+        event.reply("test-printer-response", {
+          success: true,
+          message: `Test local envoye a ${currentPrinter.name}`,
+        });
+      })
+      .catch((err) => {
+        event.reply("test-printer-response", {
+          success: false,
+          message: err.message,
+        });
+      });
+    return;
+  }
+
   const activePorts = Object.entries(currentPrinter.protocols)
     .filter(([_, enabled]) => enabled)
     .map(([port]) => parseInt(port, 10));
@@ -813,6 +959,13 @@ async function testUsbPrinter(printer) {
   const cut = Buffer.from([0x1d, 0x56, 0x00]);
   const payload = Buffer.concat([text, cut]).toString("base64");
   await printUsb(printer, payload);
+}
+
+async function testLocalPrinter(printer) {
+  const text = Buffer.from("Test d'impression SmartEat Local ESC/POS\n\n", "utf8");
+  const cut = Buffer.from([0x1d, 0x56, 0x00]);
+  const payload = Buffer.concat([text, cut]).toString("base64");
+  await printLocal(printer, payload);
 }
 
 /**
@@ -1013,10 +1166,13 @@ async function printBluetooth(printer, base64Data, forcedProtocol = null) {
     if (!printer.portName) {
       throw new Error(`Aucun port COM Bluetooth configure pour ${printer.name}`);
     }
-    await printBluetoothSerial(printer.portName, base64Data);
+    await printBluetoothSerial(
+      normalizeSerialPortName(printer.portName, printer.realPortName),
+      base64Data
+    );
   }
 
-  if (activeProtocols.includes("windowsSpooler")) {
+  if (activeProtocols.includes("bluetoothWindowsSpooler")) {
     if (!printer.printerName) {
       throw new Error(`Aucune file Windows configuree pour ${printer.name}`);
     }
@@ -1035,10 +1191,39 @@ async function printUsb(printer, base64Data, forcedProtocol = null) {
     if (!printer.portName) {
       throw new Error(`Aucun port COM USB configure pour ${printer.name}`);
     }
-    await printBluetoothSerial(printer.portName, base64Data);
+    await printBluetoothSerial(
+      normalizeSerialPortName(printer.portName, printer.realPortName),
+      base64Data
+    );
   }
 
-  if (activeProtocols.includes("windowsSpooler")) {
+  if (activeProtocols.includes("usbWindowsSpooler")) {
+    if (!printer.printerName) {
+      throw new Error(`Aucune file Windows configuree pour ${printer.name}`);
+    }
+    await printWindowsRaw(printer.printerName, base64Data);
+  }
+}
+
+async function printLocal(printer, base64Data, forcedProtocol = null) {
+  const activeProtocols = forcedProtocol
+    ? [forcedProtocol]
+    : Object.entries(printer.protocols || {})
+        .filter(([_, enabled]) => enabled)
+        .map(([protocol]) => protocol);
+
+  if (activeProtocols.includes("localSerial")) {
+    if (!printer.portName) {
+      throw new Error(`Aucun port local configure pour ${printer.name}`);
+    }
+    const portName = normalizeSerialPortName(
+      printer.portName.replace(/:$/, ""),
+      printer.realPortName
+    );
+    await printBluetoothSerial(portName, base64Data);
+  }
+
+  if (activeProtocols.includes("localWindowsSpooler")) {
     if (!printer.printerName) {
       throw new Error(`Aucune file Windows configuree pour ${printer.name}`);
     }
@@ -1047,6 +1232,7 @@ async function printUsb(printer, base64Data, forcedProtocol = null) {
 }
 
 async function printBluetoothSerial(portName, base64Data) {
+  const serialPortName = normalizeSerialPortName(portName);
   const script = `
     $bytes = [Convert]::FromBase64String($env:SMARTEAT_PRINT_BASE64)
     $port = New-Object System.IO.Ports.SerialPort $env:SMARTEAT_COM_PORT, 9600, None, 8, One
@@ -1061,7 +1247,7 @@ async function printBluetoothSerial(portName, base64Data) {
   `;
 
   await runPowerShell(script, {
-    SMARTEAT_COM_PORT: portName,
+    SMARTEAT_COM_PORT: serialPortName,
     SMARTEAT_PRINT_BASE64: base64Data,
   });
 }

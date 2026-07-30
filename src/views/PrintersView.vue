@@ -2,12 +2,25 @@
   <div class="main-content">
     <div class="card">
       <h1>Mes imprimantes</h1>
-      <button id="reload-btn" @click="loadPrinters">
-        Recharger la liste
-      </button>
+      <div class="toolbar-row">
+        <button id="reload-btn" @click="loadPrinters(true)">
+          Recharger la liste
+        </button>
+        <label class="filter-toggle">
+          <input
+            type="checkbox"
+            v-model="useDiscoveryFilters"
+            @change="loadPrinters(true)"
+          />
+          <span>Recherche avec filtre</span>
+        </label>
+      </div>
 
       <div v-if="loading" class="printer-list">
-        <p class="no-printer">Recherche d'imprimantes reseau, Bluetooth et USB...</p>
+        <div class="loading-state">
+          <div class="spinner" aria-hidden="true"></div>
+          <p class="no-printer">Recherche d'imprimantes reseau, Bluetooth, USB et locales...</p>
+        </div>
       </div>
 
       <div v-else-if="printers.length === 0" class="printer-list">
@@ -51,6 +64,14 @@
               <b>File Windows :</b> {{ printer.printerName || "-" }}<br />
               <b>Driver :</b> {{ printer.driverName || printer.description || "-" }}<br />
               <b>Type :</b> {{ printer.protocol || "usb" }}
+            </template>
+            <template v-else-if="printer.connectionType === 'local'">
+              <b>Port local :</b> {{ printer.portName || "-" }}<br />
+              <b>Port reel :</b> {{ printer.realPortName || "-" }}<br />
+              <b>Port utilise :</b> {{ printer.effectivePortName || printer.portName || "-" }}<br />
+              <b>File Windows :</b> {{ printer.printerName || "-" }}<br />
+              <b>Driver :</b> {{ printer.driverName || printer.description || "-" }}<br />
+              <b>Type :</b> {{ printer.protocol || "local" }}
             </template>
             <template v-else>
               <b>IP :</b> {{ printer.ip || "-" }}<br />
@@ -102,7 +123,6 @@
                     type="checkbox"
                     @change="savePrinterConfig"
                     v-model="printer.protocols[proto.key]"
-                    :disabled="!proto.available"
                   />
                   <span class="slider"></span>
                 </label>
@@ -121,11 +141,25 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onBeforeUnmount } from "vue";
 const { ipcRenderer } = window.require("electron");
 
-const printers = ref([]);
-const loading = ref(true);
+let cachedPrinters = null;
+let cachedUseDiscoveryFilters = true;
+const statusTimers = new Set();
+
+const printers = ref(cachedPrinters ? clone(cachedPrinters) : []);
+const loading = ref(!cachedPrinters);
+const useDiscoveryFilters = ref(cachedUseDiscoveryFilters);
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function updatePrinterCache() {
+  cachedPrinters = clone(printers.value);
+  cachedUseDiscoveryFilters = useDiscoveryFilters.value;
+}
 
 const networkProtocols = [
   { label: "ESC/POS (9100)", key: "9100" },
@@ -136,23 +170,30 @@ const networkProtocols = [
 
 const bluetoothProtocols = [
   { label: "Bluetooth ESC/POS (port COM)", key: "bluetoothSerial" },
-  { label: "File d'impression Windows", key: "windowsSpooler" },
+  { label: "File d'impression Windows (Bluetooth)", key: "bluetoothWindowsSpooler" },
 ];
 
 const usbProtocols = [
   { label: "USB ESC/POS (port COM)", key: "usbSerial" },
-  { label: "File d'impression Windows", key: "windowsSpooler" },
+  { label: "File d'impression Windows (USB)", key: "usbWindowsSpooler" },
+];
+
+const localProtocols = [
+  { label: "ESC/POS port local", key: "localSerial" },
+  { label: "File d'impression Windows (local)", key: "localWindowsSpooler" },
 ];
 
 function getConnectionLabel(printer) {
   if (printer.connectionType === "bluetooth") return "Bluetooth Windows";
   if (printer.connectionType === "usb") return "USB Windows";
+  if (printer.connectionType === "local") return "Local Windows";
   return "Reseau";
 }
 
 function getConnectionCardClass(printer) {
   if (printer.connectionType === "bluetooth") return "bluetooth-card";
   if (printer.connectionType === "usb") return "usb-card";
+  if (printer.connectionType === "local") return "local-card";
   return "network-card";
 }
 
@@ -160,11 +201,8 @@ function getProtocolsForPrinter(printer) {
   let protocols = networkProtocols;
   if (printer.connectionType === "bluetooth") protocols = bluetoothProtocols;
   if (printer.connectionType === "usb") protocols = usbProtocols;
-
-  return protocols.map((protocol) => ({
-    ...protocol,
-    available: printer.availableProtocols?.[protocol.key] !== false,
-  }));
+  if (printer.connectionType === "local") protocols = localProtocols;
+  return protocols;
 }
 
 async function updateStatus(printer) {
@@ -179,6 +217,11 @@ async function updateStatus(printer) {
         "check-usb-printer-online",
         JSON.parse(JSON.stringify(printer))
       );
+    } else if (printer.connectionType === "local") {
+      printer.online = await ipcRenderer.invoke(
+        "check-local-printer-online",
+        JSON.parse(JSON.stringify(printer))
+      );
     } else {
       printer.online = await ipcRenderer.invoke("check-printer-online", {
         ip: printer.ip,
@@ -189,11 +232,17 @@ async function updateStatus(printer) {
     printer.online = false;
   }
 
-  setTimeout(() => updateStatus(printer), 10000);
+  updatePrinterCache();
+  const timer = setTimeout(() => {
+    statusTimers.delete(timer);
+    updateStatus(printer);
+  }, 10000);
+  statusTimers.add(timer);
 }
 
 function savePrinterConfig() {
   const data = JSON.parse(JSON.stringify(printers.value));
+  updatePrinterCache();
   ipcRenderer.send("save-printer-config", data);
 }
 
@@ -203,9 +252,13 @@ function testPrinter(printer) {
 }
 
 function findSavedConfig(saved, printer) {
+  const exactMatch = saved.find((savedPrinter) => savedPrinter.id === printer.id);
+  if (exactMatch) return exactMatch;
+
   return saved.find((savedPrinter) => {
+    if (savedPrinter.connectionType !== printer.connectionType) return false;
+
     return (
-      savedPrinter.id === printer.id ||
       (printer.ip && savedPrinter.ip === printer.ip) ||
       (printer.portName && savedPrinter.portName === printer.portName) ||
       (printer.printerName && savedPrinter.printerName === printer.printerName)
@@ -214,21 +267,39 @@ function findSavedConfig(saved, printer) {
 }
 
 function buildDefaultProtocols(printer, savedCfg) {
-  if (savedCfg?.protocols) return savedCfg.protocols;
-
   if (printer.connectionType === "bluetooth") {
     return {
-      bluetoothSerial: false,
-      windowsSpooler: false,
+      bluetoothSerial: savedCfg?.protocols?.bluetoothSerial || false,
+      bluetoothWindowsSpooler:
+        savedCfg?.protocols?.bluetoothWindowsSpooler ||
+        (savedCfg?.connectionType === "bluetooth" &&
+          savedCfg?.protocols?.windowsSpooler) ||
+        false,
     };
   }
 
   if (printer.connectionType === "usb") {
     return {
-      usbSerial: false,
-      windowsSpooler: false,
+      usbSerial: savedCfg?.protocols?.usbSerial || false,
+      usbWindowsSpooler:
+        savedCfg?.protocols?.usbWindowsSpooler ||
+        (savedCfg?.connectionType === "usb" && savedCfg?.protocols?.windowsSpooler) ||
+        false,
     };
   }
+
+  if (printer.connectionType === "local") {
+    return {
+      localSerial: savedCfg?.protocols?.localSerial || false,
+      localWindowsSpooler:
+        savedCfg?.protocols?.localWindowsSpooler ||
+        (savedCfg?.connectionType === "local" &&
+          savedCfg?.protocols?.windowsSpooler) ||
+        false,
+    };
+  }
+
+  if (savedCfg?.protocols) return savedCfg.protocols;
 
   return {
     9100: false,
@@ -238,13 +309,21 @@ function buildDefaultProtocols(printer, savedCfg) {
   };
 }
 
-async function loadPrinters() {
+async function loadPrinters(forceDiscovery = false) {
+  if (!forceDiscovery && cachedPrinters) {
+    printers.value = clone(cachedPrinters);
+    loading.value = false;
+    return;
+  }
+
   loading.value = true;
   printers.value = [];
 
   try {
     const saved = await ipcRenderer.invoke("get-saved-printers");
-    const discovered = await ipcRenderer.invoke("discover-printers");
+    const discovered = await ipcRenderer.invoke("discover-printers", {
+      useFilters: useDiscoveryFilters.value,
+    });
 
     printers.value = discovered.map((printer) => {
       const savedCfg = findSavedConfig(saved, printer);
@@ -260,6 +339,7 @@ async function loadPrinters() {
     });
 
     for (const printer of printers.value) updateStatus(printer);
+    updatePrinterCache();
     savePrinterConfig();
   } catch (e) {
     console.error("Erreur decouverte imprimantes:", e);
@@ -269,11 +349,66 @@ async function loadPrinters() {
 }
 
 onMounted(async () => {
-  await loadPrinters();
+  const hadCachedPrinters = Boolean(cachedPrinters);
+  await loadPrinters(false);
+  if (hadCachedPrinters) {
+    for (const printer of printers.value) updateStatus(printer);
+  }
+});
+
+onBeforeUnmount(() => {
+  for (const timer of statusTimers) clearTimeout(timer);
+  statusTimers.clear();
 });
 </script>
 
 <style scoped>
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.filter-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 90px;
+  color: #475569;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #dbeafe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .printer-list {
   display: flex;
   flex-direction: column;
@@ -296,6 +431,10 @@ onMounted(async () => {
 
 .usb-card {
   border-left-color: #f39c12;
+}
+
+.local-card {
+  border-left-color: #0f766e;
 }
 
 .network-card {
@@ -439,11 +578,6 @@ input:checked + .slider {
 
 input:checked + .slider:before {
   transform: translateX(1.5em);
-}
-
-input:disabled + .slider {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .btn-print-selected {

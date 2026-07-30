@@ -42,6 +42,16 @@ let tray = null;
 let isQuitting = false;
 let updateEventsRegistered = false;
 
+function getAppIconPath() {
+  const iconCandidates = [
+    path.join(__dirname, "build", "icon.ico"),
+    path.join(__dirname, "public", "icon.ico"),
+    path.join(__dirname, "public", "favicon.ico"),
+  ];
+
+  return iconCandidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
 function runPowerShell(script, env = {}) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -98,6 +108,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
+    icon: getAppIconPath() || undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: true,
@@ -124,12 +135,7 @@ function createWindow() {
 }
 
 function getTrayIcon() {
-  const iconCandidates = [
-    path.join(__dirname, "build", "icon.ico"),
-    path.join(__dirname, "public", "icon.ico"),
-    path.join(__dirname, "public", "favicon.ico"),
-  ];
-  const iconPath = iconCandidates.find((candidate) => fs.existsSync(candidate));
+  const iconPath = getAppIconPath();
 
   if (!iconPath) {
     return nativeImage.createEmpty();

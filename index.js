@@ -44,6 +44,7 @@ let updateEventsRegistered = false;
 
 function getAppIconPath() {
   const iconCandidates = [
+    path.join(__dirname, "public", "icon.png"),
     path.join(__dirname, "build", "icon.ico"),
     path.join(__dirname, "public", "icon.ico"),
     path.join(__dirname, "public", "favicon.ico"),
@@ -260,6 +261,7 @@ function checkForUpdates({ manual = false } = {}) {
   });
 }
 
+app.setAppUserModelId("com.smarteat.printeragent");
 app.setLoginItemSettings({
   openAtLogin: true,
 });

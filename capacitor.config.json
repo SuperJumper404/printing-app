@@ -1,0 +1,8 @@
+{
+  "appId": "com.smarteat.printeragent",
+  "appName": "SmartEat Printer Agent",
+  "webDir": "frontend/dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

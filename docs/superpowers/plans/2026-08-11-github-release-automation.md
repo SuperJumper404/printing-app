@@ -48,3 +48,4 @@
 - [ ] Tag and push `v1.0.0`.
 - [ ] Confirm GitHub Actions/release creation.
 - [x] Fix workflow dependency install for repository without committed lockfile.
+- [x] Replace Electron Builder direct publishing with explicit GitHub CLI release upload to avoid split draft releases.

@@ -1,0 +1,39 @@
+{
+  "userSession": {
+    "email": "demo@example.com",
+    "shopid": 1,
+    "token": "REPLACE_WITH_LOCAL_TOKEN",
+    "shop_name": "Restaurant Demo"
+  },
+  "printers": [
+    {
+      "id": "manual-network-192.168.1.30-9100",
+      "name": "Imprimante ticket exemple",
+      "type": "manual",
+      "ip": "192.168.1.30",
+      "port": 9100,
+      "protocol": "tcp",
+      "model": "ESC/POS manuel",
+      "product": null,
+      "connectionType": "network",
+      "availableProtocols": {
+        "80": false,
+        "515": false,
+        "631": false,
+        "9100": true
+      },
+      "online": false,
+      "ticketTypes": {
+        "caisse": true,
+        "cuisine": true
+      },
+      "protocols": {
+        "80": false,
+        "515": false,
+        "631": false,
+        "9100": true
+      }
+    }
+  ],
+  "printHistory": []
+}

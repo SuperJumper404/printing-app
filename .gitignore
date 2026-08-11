@@ -23,6 +23,7 @@ coverage/
 *.rar
 
 # Environment files
+settings.json
 
 # Logs
 *.log

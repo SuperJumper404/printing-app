@@ -43,9 +43,9 @@
 - Produces: first `v1.0.0` release.
 
 - [x] Run syntax/build checks.
-- [ ] Commit release automation without `settings.json`.
-- [ ] Push `main`.
-- [ ] Tag and push `v1.0.0`.
-- [ ] Confirm GitHub Actions/release creation.
+- [x] Commit release automation without `settings.json`.
+- [x] Push `main`.
+- [x] Tag and push `v1.0.0`.
+- [x] Confirm GitHub Actions/release creation.
 - [x] Fix workflow dependency install for repository without committed lockfile.
 - [x] Replace Electron Builder direct publishing with explicit GitHub CLI release upload to avoid split draft releases.

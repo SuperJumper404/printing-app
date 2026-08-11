@@ -16,7 +16,7 @@ git push origin main
 git push origin v1.0.1
 ```
 
-GitHub Actions builds the Windows installer/portable files and publishes them to the GitHub release. `electron-updater` reads the generated `latest.yml` from GitHub Releases.
+GitHub Actions installs dependencies, builds the Windows installer/portable files, and publishes them to the GitHub release. `electron-updater` reads the generated `latest.yml` from GitHub Releases.
 
 ## Manual local build
 

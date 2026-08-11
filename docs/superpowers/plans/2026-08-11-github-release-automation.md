@@ -47,3 +47,4 @@
 - [ ] Push `main`.
 - [ ] Tag and push `v1.0.0`.
 - [ ] Confirm GitHub Actions/release creation.
+- [x] Fix workflow dependency install for repository without committed lockfile.

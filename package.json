@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test:shared": "node --test packages/shared/test/*.test.js",
-    "build": "electron-builder",
-    "build:web": "vite build",
+    "scripts": {
+      "test": "echo \"Error: no test specified\" && exit 1",
+      "test:shared": "node --test packages/shared/test/*.test.js",
+      "release:win": "npm.cmd run build:web && electron-builder --win --publish never",
+      "build": "electron-builder",
+      "build:web": "vite build",
     "android:sync": "npm.cmd run build:web && npx.cmd cap sync android",
     "android:open": "npx.cmd cap open android",
     "android:run": "npm.cmd run build:web && npx.cmd cap run android"
@@ -68,6 +69,10 @@
       {
         "from": "public/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       }
     ],
     "win": {
@@ -75,7 +80,8 @@
         "nsis",
         "portable"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
@@ -90,8 +96,9 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://updates.smarteat.com/printer-agent/"
+        "provider": "github",
+        "owner": "SuperJumper404",
+        "repo": "printing-app"
       }
     ]
   }

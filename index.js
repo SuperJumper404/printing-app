@@ -17,6 +17,36 @@ const baseDir = app.isPackaged
   ? path.dirname(app.getPath("exe")) // dossier de l'exe
   : process.cwd();
 
+const debugLogPath = path.join(baseDir, "agent-debug.log");
+
+function formatLogValue(value) {
+  if (value instanceof Error) return value.stack || value.message;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function writeDebugLog(level, args) {
+  const line = `[${new Date().toISOString()}] [${level}] ${args
+    .map(formatLogValue)
+    .join(" ")}\n`;
+
+  try {
+    fs.appendFileSync(debugLogPath, line, "utf8");
+  } catch {}
+}
+
+["log", "warn", "error"].forEach((level) => {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    writeDebugLog(level.toUpperCase(), args);
+    original(...args);
+  };
+});
+
 console.log("Base Directory for Store:", baseDir);
 const store = new (Store.default || Store)({
   cwd: baseDir,
@@ -24,7 +54,7 @@ const store = new (Store.default || Store)({
 });
 
 const net = require("net");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 require("dotenv").config();
 const fetch = require("node-fetch");
 const ipp = require("ipp");
@@ -44,13 +74,25 @@ let updateEventsRegistered = false;
 const shouldStartHidden = process.argv.includes("--hidden");
 
 function getAppIconPath() {
-  const iconCandidates = [
+  const windowsIconCandidates = [
+    path.join(process.resourcesPath || "", "icon.ico"),
+    path.join(__dirname, "build", "icon.ico"),
+    path.join(__dirname, "public", "icon.ico"),
+    path.join(process.resourcesPath || "", "icon.png"),
+    path.join(__dirname, "public", "icon.png"),
+    path.join(__dirname, "public", "favicon.ico"),
+  ];
+
+  const defaultIconCandidates = [
     path.join(process.resourcesPath || "", "icon.png"),
     path.join(__dirname, "public", "icon.png"),
     path.join(__dirname, "build", "icon.ico"),
     path.join(__dirname, "public", "icon.ico"),
     path.join(__dirname, "public", "favicon.ico"),
   ];
+
+  const iconCandidates =
+    process.platform === "win32" ? windowsIconCandidates : defaultIconCandidates;
 
   return iconCandidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
@@ -75,6 +117,49 @@ function runPowerShell(script, env = {}) {
       }
     );
   });
+}
+
+function openDebugConsole() {
+  fs.closeSync(fs.openSync(debugLogPath, "a"));
+
+  const title = "SmartEat Printer Agent - Logs Debug";
+  const escapedLogPath = debugLogPath.replace(/'/g, "''");
+  const script = [
+    `$Host.UI.RawUI.WindowTitle = '${title}'`,
+    `Write-Host 'Logs SmartEat Printer Agent'`,
+    `Write-Host '${escapedLogPath}'`,
+    `Write-Host 'Fermez cette fenetre quand vous avez termine.'`,
+    `Write-Host ''`,
+    `Get-Content -LiteralPath '${escapedLogPath}' -Wait -Tail 200`,
+  ].join("; ");
+
+  const child = spawn(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "Start-Process",
+      "powershell.exe",
+      "-ArgumentList",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-NoExit",
+        "-Command",
+        script,
+      ].map((argument) => `'${String(argument).replace(/'/g, "''")}'`).join(","),
+    ],
+    {
+      detached: true,
+      windowsHide: true,
+      stdio: "ignore",
+    }
+  );
+
+  child.unref();
 }
 
 function normalizeSerialPortName(portName, fallbackPortName = "") {
@@ -279,18 +364,30 @@ function configureAutoLaunch() {
 }
 
 app.setAppUserModelId("com.smarteat.printeragent");
-app.whenReady().then(() => {
-  console.log("📦 Contenu complet du Store au démarrage:");
-  console.log(JSON.stringify(store.store, null, 2));
-  configureAutoLaunch();
-  createWindow();
-  createTray();
-  checkForUpdates();
-});
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") return;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
   app.quit();
-});
+} else {
+  app.on("second-instance", () => {
+    showMainWindow();
+  });
+
+  app.whenReady().then(() => {
+    console.log("📦 Contenu complet du Store au démarrage:");
+    console.log(JSON.stringify(store.store, null, 2));
+    configureAutoLaunch();
+    createWindow();
+    createTray();
+    checkForUpdates();
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") return;
+    app.quit();
+  });
+}
 
 async function discoverNetworkPrinters(timeout = 8000) {
   console.log("🔍 Recherche des imprimantes réseau...");
@@ -339,6 +436,64 @@ async function discoverNetworkPrinters(timeout = 8000) {
   });
 }
 
+function checkTcpPort(ip, port = 9100, timeout = 350) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+
+    const finish = (online) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve(online);
+    };
+
+    socket.setTimeout(timeout);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, ip);
+  });
+}
+
+async function discoverIpPrinters({ port = 9100 } = {}) {
+  const localAddress = getLocalIP();
+  const subnet = localAddress.split(".").slice(0, 3).join(".");
+
+  if (!subnet || localAddress === "127.0.0.1") return [];
+
+  const printers = [];
+  const ips = Array.from({ length: 254 }, (_, index) => `${subnet}.${index + 1}`);
+  const concurrency = 32;
+
+  for (let index = 0; index < ips.length; index += concurrency) {
+    const chunk = ips.slice(index, index + concurrency);
+    const results = await Promise.all(
+      chunk.map(async (ip) => ({
+        ip,
+        online: await checkTcpPort(ip, port),
+      }))
+    );
+
+    results
+      .filter((result) => result.online)
+      .forEach((result) => {
+        printers.push({
+          id: `ip-scan-${result.ip}-${port}`,
+          name: `Imprimante ${result.ip}`,
+          type: "ip-scan",
+          ip: result.ip,
+          port,
+          protocol: "tcp",
+          model: "ESC/POS detecte",
+          product: null,
+        });
+      });
+  }
+
+  return printers;
+}
+
 async function discoverBluetoothPrinters({ useFilters = true } = {}) {
   if (process.platform !== "win32") {
     console.log("Bluetooth discovery is only implemented on Windows.");
@@ -346,6 +501,16 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
   }
 
   const script = `
+    $pnpUsbDevices = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.PNPDeviceID -match 'USBPRINT|VID_' -and
+        (
+          $env:SMARTEAT_USE_FILTERS -eq 'false' -or
+          $_.Name -match 'print|printer|pos|receipt|thermal|ticket|epson|tm-|star|zebra|bixolon|citizen|xprinter|xp-' -or
+          $_.PNPDeviceID -match 'USBPRINT'
+        )
+      }
+
     $serialPorts = Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue |
       Where-Object {
         $env:SMARTEAT_USE_FILTERS -eq 'false' -or
@@ -354,12 +519,28 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
         $_.PNPDeviceID -match 'BTH|Bluetooth'
       } |
       ForEach-Object {
+        $serial = $_
+        $displayName = $serial.Name
+        $vidPid = [regex]::Match($serial.PNPDeviceID, 'VID_[0-9A-F]{4}&PID_[0-9A-F]{4}', 'IgnoreCase').Value
+        if ($vidPid) {
+          $matchedPnp = $pnpUsbDevices |
+            Where-Object {
+              $_.PNPDeviceID -match [regex]::Escape($vidPid) -and
+              $_.Name -notmatch 'Périphérique série USB|USB Serial Device|Serial'
+            } |
+            Select-Object -First 1
+
+          if ($matchedPnp -and $matchedPnp.Name) {
+            $displayName = "$($matchedPnp.Name) ($($serial.DeviceID))"
+          }
+        }
+
         [pscustomobject]@{
           source = 'serial'
-          name = $_.Name
-          portName = $_.DeviceID
-          description = $_.Description
-          pnpDeviceId = $_.PNPDeviceID
+          name = $displayName
+          portName = $serial.DeviceID
+          description = $serial.Description
+          pnpDeviceId = $serial.PNPDeviceID
         }
       }
 
@@ -380,7 +561,26 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
         }
       }
 
-    @($serialPorts + $printerQueues) | ConvertTo-Json -Depth 4
+    $pnpOnlyPrinters = $pnpUsbDevices |
+      Where-Object {
+        $_.Name -and
+        $_.PNPDeviceID -match 'USBPRINT' -and
+        -not ($printerQueues | Where-Object { $_.name -eq $_.Name -or $_.portName -match 'USB' })
+      } |
+      ForEach-Object {
+        $portMatch = [regex]::Match($_.PNPDeviceID, 'USB[0-9]{3}', 'IgnoreCase')
+        [pscustomobject]@{
+          source = 'pnp-usbprint'
+          name = $_.Name
+          printerName = $null
+          portName = if ($portMatch.Success) { $portMatch.Value.ToUpper() } else { $null }
+          driverName = $null
+          status = $_.Status
+          pnpDeviceId = $_.PNPDeviceID
+        }
+      }
+
+    @($serialPorts + $printerQueues + $pnpOnlyPrinters) | ConvertTo-Json -Depth 4
   `;
 
   const devices = await runPowerShellJson(script, {
@@ -424,6 +624,28 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
             bluetoothWindowsSpooler: true,
           },
       });
+    }
+
+    if (device.source === "pnp-usbprint" && device.name) {
+      const id = `usb-pnp-${device.pnpDeviceId || device.name}`;
+      if (!printers.has(id)) {
+        printers.set(id, {
+          id,
+          name: `${device.name} (driver non installe)`,
+          type: "usb",
+          connectionType: "usb",
+          printerName: null,
+          portName: device.portName || null,
+          protocol: "usb-detected",
+          driverName: device.driverName || null,
+          status: device.status || null,
+          pnpDeviceId: device.pnpDeviceId || null,
+          availableProtocols: {
+            usbSerial: false,
+            usbWindowsSpooler: false,
+          },
+        });
+      }
     }
   }
 
@@ -687,15 +909,37 @@ ipcMain.handle("get-saved-printers", () => {
   const savedPrinters = store.get("printers", []);
   return savedPrinters;
 });
+
+ipcMain.handle("purge-printer-data", () => {
+  store.delete("printers");
+  store.delete("printHistory");
+  console.log("Donnees imprimantes purgees.");
+  return { success: true };
+});
+
+ipcMain.handle("open-debug-console", () => {
+  openDebugConsole();
+  return { success: true, logPath: debugLogPath };
+});
 // -------------------------------------------------------------
 // 📡 Communication avec le front-end (printer.html)
 // -------------------------------------------------------------
 ipcMain.handle("discover-printers", async (_, options = {}) => {
   const useFilters = options.useFilters !== false;
-  const networkPrinters = await discoverNetworkPrinters();
-  const bluetoothPrinters = await discoverBluetoothPrinters({ useFilters });
-  const usbPrinters = await discoverUsbPrinters({ useFilters });
-  const localPrinters = await discoverLocalPrinterQueues({ useFilters });
+  const modes = {
+    bluetooth: options.modes?.bluetooth !== false,
+    usb: options.modes?.usb !== false,
+    com: options.modes?.com !== false,
+    ipScan: options.modes?.ipScan !== false,
+  };
+  const networkPrinters = modes.ipScan ? await discoverIpPrinters() : [];
+  const bluetoothPrinters = modes.bluetooth
+    ? await discoverBluetoothPrinters({ useFilters })
+    : [];
+  const usbPrinters = modes.usb ? await discoverUsbPrinters({ useFilters }) : [];
+  const localPrinters = modes.com
+    ? await discoverLocalPrinterQueues({ useFilters })
+    : [];
 
   return [
     ...networkPrinters.map((printer) => ({
@@ -948,7 +1192,9 @@ async function printTicketPayload(payload) {
 
       const port = parseInt(activeProtocol, 10);
       if (port === 9100) {
-        printTasks.push(printESCPOS(printer.ip, payload.dataFormatESCPOS));
+        printTasks.push(
+          printESCPOS(printer.ip, payload.dataFormatESCPOS, printer.port || 9100)
+        );
       }
     });
   });
@@ -1008,6 +1254,55 @@ ipcMain.handle("print-job", async (_, job) => {
     });
     return { success: false, error: error.message, historyEntry };
   }
+});
+
+ipcMain.handle("test-printer-protocols", async (_, config) => {
+  const savedPrinters = store.get("printers", []);
+  const currentPrinter = savedPrinters.find(
+    (printer) => printer.id === config.id || printer.ip === config.ip
+  );
+
+  if (!currentPrinter) {
+    return {
+      success: false,
+      message: "Imprimante introuvable dans la configuration",
+    };
+  }
+
+  const activeProtocols = Object.entries(currentPrinter.protocols || {})
+    .filter(([_, enabled]) => enabled)
+    .map(([protocol]) => protocol);
+
+  if (!activeProtocols.length) {
+    return {
+      success: false,
+      message: "Aucun protocole actif pour cette imprimante",
+    };
+  }
+
+  const results = [];
+
+  for (const protocol of activeProtocols) {
+    try {
+      await testPrinterProtocol(currentPrinter, protocol);
+      results.push({ protocol, success: true });
+    } catch (error) {
+      console.error(`Erreur test protocole ${protocol}:`, error);
+      results.push({ protocol, success: false, error: error.message });
+    }
+  }
+
+  return {
+    success: results.every((result) => result.success),
+    results,
+    message: results
+      .map((result) =>
+        result.success
+          ? `${getProtocolLabel(result.protocol)}: OK`
+          : `${getProtocolLabel(result.protocol)}: ${result.error}`
+      )
+      .join("\n"),
+  };
 });
 
 ipcMain.on("test-printer", (event, config) => {
@@ -1091,7 +1386,7 @@ ipcMain.on("test-printer", (event, config) => {
   // Tester chaque port activé
   activePorts.forEach(async (port) => {
     if (port === 9100) {
-      await testEscPos(currentPrinter.ip);
+      await testEscPos(currentPrinter.ip, currentPrinter.port || 9100);
     } else if (port === 515) {
       await printLpr(currentPrinter.ip);
     } else if (port === 631) {
@@ -1126,6 +1421,70 @@ ipcMain.on("test-printer", (event, config) => {
     }
   });
 });
+
+function getProtocolLabel(protocol) {
+  const labels = {
+    9100: "ESC/POS 9100",
+    631: "IPP 631",
+    515: "LPR 515",
+    80: "HTTP ePOS 80",
+    bluetoothSerial: "Bluetooth COM",
+    bluetoothWindowsSpooler: "Bluetooth Windows",
+    usbSerial: "USB COM",
+    usbWindowsSpooler: "USB Windows",
+    localSerial: "COM local",
+    localWindowsSpooler: "File Windows",
+  };
+
+  return labels[protocol] || protocol;
+}
+
+function buildTestPayload(label) {
+  const text = Buffer.from(`Test d'impression SmartEat\n${label}\n\n`, "utf8");
+  const cut = Buffer.from([0x1d, 0x56, 0x00]);
+  return Buffer.concat([text, cut]).toString("base64");
+}
+
+async function testPrinterProtocol(printer, protocol) {
+  const payload = buildTestPayload(getProtocolLabel(protocol));
+
+  if (printer.connectionType === "bluetooth") {
+    await printBluetooth(printer, payload, protocol);
+    return;
+  }
+
+  if (printer.connectionType === "usb") {
+    await printUsb(printer, payload, protocol);
+    return;
+  }
+
+  if (printer.connectionType === "local") {
+    await printLocal(printer, payload, protocol);
+    return;
+  }
+
+  if (protocol === "9100") {
+    await printESCPOS(printer.ip, payload, printer.port || 9100);
+    return;
+  }
+
+  if (protocol === "631") {
+    await printIpp(printer.ip);
+    return;
+  }
+
+  if (protocol === "80") {
+    await printHttp(printer.ip);
+    return;
+  }
+
+  if (protocol === "515") {
+    await printLpr(printer.ip);
+    return;
+  }
+
+  throw new Error(`Protocole non gere: ${protocol}`);
+}
 
 async function testBluetoothPrinter(printer) {
   const text = Buffer.from("Test d'impression SmartEat Bluetooth\n\n", "utf8");
@@ -1200,13 +1559,14 @@ async function printHttp(ip) {
 
 async function printLpr(ip) {
   console.log(`LPR non implemente pour ${ip}`);
+  throw new Error("LPR 515 non implemente");
 }
 
-async function testEscPos(ip) {
+async function testEscPos(ip, port = 9100) {
   return new Promise((resolve, reject) => {
     const client = new net.Socket();
 
-    client.connect(9100, ip, () => {
+    client.connect(port, ip, () => {
       console.log(`✅ ESC/POS connecté à ${ip}:9100`);
       client.write("Test d'impression SmartEat\n\n");
       client.write(Buffer.from([0x1d, 0x56, 0x00])); // CUT
@@ -1320,11 +1680,11 @@ appServer.listen(PORT, () => {
 // ———————————————————————————————
 // 🧾 Fonction impression ESC/POS
 // ———————————————————————————————
-async function printESCPOS(ip, text) {
+async function printESCPOS(ip, text, port = 9100) {
   return new Promise((resolve, reject) => {
     const buffer = Buffer.from(text, "base64"); //
     const client = new net.Socket();
-    client.connect(9100, ip, () => {
+    client.connect(port, ip, () => {
       console.log(`✅ Connecté à ${ip}:9100`);
       client.write(buffer);
       client.write(Buffer.from([0x1d, 0x56, 0x00])); // Cut

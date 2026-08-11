@@ -6,6 +6,17 @@
         <button id="reload-btn" @click="loadPrinters(true)">
           Recharger la liste
         </button>
+        <button
+          id="purge-btn"
+          type="button"
+          :disabled="purging"
+          @click="purgePrinterData"
+        >
+          {{ purging ? "Purge en cours..." : "Purger l'app" }}
+        </button>
+        <button id="debug-btn" type="button" @click="openDebugConsole">
+          Logs debug
+        </button>
         <label class="filter-toggle">
           <input
             type="checkbox"
@@ -15,6 +26,58 @@
           <span>Recherche avec filtre</span>
         </label>
       </div>
+
+      <div class="discovery-modes">
+        <span class="discovery-modes-title">Chercher uniquement :</span>
+        <label>
+          <input type="checkbox" v-model="discoveryModes.bluetooth" />
+          BT
+        </label>
+        <label>
+          <input type="checkbox" v-model="discoveryModes.usb" />
+          USB
+        </label>
+        <label>
+          <input type="checkbox" v-model="discoveryModes.com" />
+          COM
+        </label>
+        <label>
+          <input type="checkbox" v-model="discoveryModes.ipScan" />
+          Scan IP
+        </label>
+      </div>
+
+      <form class="manual-printer-form" @submit.prevent="addManualPrinter">
+        <div>
+          <label for="manual-printer-ip">Ajouter par IP</label>
+          <input
+            id="manual-printer-ip"
+            v-model.trim="manualPrinterIp"
+            type="text"
+            placeholder="192.168.1.30"
+          />
+        </div>
+        <div>
+          <label for="manual-printer-port">Port</label>
+          <input
+            id="manual-printer-port"
+            v-model.number="manualPrinterPort"
+            type="number"
+            min="1"
+            max="65535"
+            placeholder="9100"
+          />
+        </div>
+        <button type="submit" :disabled="addingManualPrinter">
+          {{ addingManualPrinter ? "Test..." : "Ajouter" }}
+        </button>
+      </form>
+
+      <p v-if="manualPrinterMessage" class="manual-printer-message">
+        {{ manualPrinterMessage }}
+      </p>
+
+      <p v-if="purgeMessage" class="purge-message">{{ purgeMessage }}</p>
 
       <div v-if="loading" class="printer-list">
         <div class="loading-state">
@@ -147,14 +210,33 @@ const { ipcRenderer } = window.require("electron");
 window.__smarteatPrinterDiscoveryCache ||= {
   printers: null,
   useDiscoveryFilters: true,
+  discoveryModes: {
+    bluetooth: true,
+    usb: true,
+    com: true,
+    ipScan: true,
+  },
 };
 
 const statusTimers = new Set();
 
 const printerCache = window.__smarteatPrinterDiscoveryCache;
+printerCache.discoveryModes ||= {
+  bluetooth: true,
+  usb: true,
+  com: true,
+  ipScan: true,
+};
 const printers = ref(printerCache.printers ? clone(printerCache.printers) : []);
 const loading = ref(!printerCache.printers);
 const useDiscoveryFilters = ref(printerCache.useDiscoveryFilters);
+const discoveryModes = ref(clone(printerCache.discoveryModes));
+const purging = ref(false);
+const purgeMessage = ref("");
+const manualPrinterIp = ref("");
+const manualPrinterPort = ref(9100);
+const addingManualPrinter = ref(false);
+const manualPrinterMessage = ref("");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -163,6 +245,7 @@ function clone(value) {
 function updatePrinterCache() {
   printerCache.printers = clone(printers.value);
   printerCache.useDiscoveryFilters = useDiscoveryFilters.value;
+  printerCache.discoveryModes = clone(discoveryModes.value);
 }
 
 const networkProtocols = [
@@ -250,9 +333,152 @@ function savePrinterConfig() {
   ipcRenderer.send("save-printer-config", data);
 }
 
-function testPrinter(printer) {
+async function openDebugConsole() {
+  try {
+    const result = await ipcRenderer.invoke("open-debug-console");
+    manualPrinterMessage.value = `Console logs demandee. Fichier : ${result.logPath}`;
+  } catch (error) {
+    console.error("Impossible d'ouvrir les logs debug:", error);
+    manualPrinterMessage.value = "Impossible d'ouvrir la console de logs.";
+  }
+}
+
+function parseManualPrinterAddress(input) {
+  const value = String(input || "")
+    .trim()
+    .replace(/[,\s]+/g, ".");
+  const match = value.match(/(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?/);
+
+  if (!match) return null;
+
+  const ip = match[1];
+  const parts = ip.split(".");
+  const validIp =
+    parts.length === 4 &&
+    parts.every((part) => {
+      if (!/^\d{1,3}$/.test(part)) return false;
+      const value = Number(part);
+      return value >= 0 && value <= 255;
+    });
+
+  if (!validIp) return null;
+
+  return {
+    ip,
+    port: match[2] ? Number(match[2]) : null,
+  };
+}
+
+async function addManualPrinter() {
+  const parsedAddress = parseManualPrinterAddress(manualPrinterIp.value);
+  const ip = parsedAddress?.ip || "";
+  const port = Number(parsedAddress?.port || manualPrinterPort.value || 9100);
+
+  manualPrinterMessage.value = "";
+
+  if (!parsedAddress) {
+    manualPrinterMessage.value = `Adresse IP invalide : "${manualPrinterIp.value}". Exemple accepte : 192.168.1.30`;
+    return;
+  }
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    manualPrinterMessage.value = "Port invalide.";
+    return;
+  }
+
+  const existingPrinter = printers.value.find(
+    (printer) => printer.connectionType === "network" && printer.ip === ip
+  );
+
+  if (existingPrinter) {
+    manualPrinterMessage.value = "Cette imprimante est deja dans la liste.";
+    return;
+  }
+
+  addingManualPrinter.value = true;
+
+  try {
+    const online = await ipcRenderer.invoke("check-printer-online", { ip, port });
+
+    if (!online) {
+      manualPrinterMessage.value = `Aucune imprimante detectee sur ${ip}:${port}.`;
+      return;
+    }
+
+    const printer = {
+      id: `manual-network-${ip}-${port}`,
+      name: `Imprimante ${ip}`,
+      connectionType: "network",
+      type: "manual",
+      ip,
+      port,
+      protocol: "tcp",
+      model: "ESC/POS manuel",
+      product: null,
+      online: true,
+      ticketTypes: { caisse: false, cuisine: false },
+      protocols: {
+        9100: port === 9100,
+        631: false,
+        515: false,
+        80: false,
+      },
+      availableProtocols: {
+        9100: true,
+        631: false,
+        515: false,
+        80: false,
+      },
+    };
+
+    printers.value.unshift(printer);
+    manualPrinterIp.value = "";
+    manualPrinterPort.value = 9100;
+    manualPrinterMessage.value = `Imprimante ajoutee : ${ip}:${port}.`;
+    savePrinterConfig();
+    updateStatus(printer);
+  } catch (error) {
+    console.error("Erreur ajout imprimante manuelle:", error);
+    manualPrinterMessage.value = "Impossible de tester cette imprimante.";
+  } finally {
+    addingManualPrinter.value = false;
+  }
+}
+
+async function purgePrinterData() {
+  const confirmed = window.confirm(
+    "Supprimer les imprimantes enregistrees et l'historique d'impression ?"
+  );
+
+  if (!confirmed) return;
+
+  purging.value = true;
+  purgeMessage.value = "";
+
+  try {
+    await ipcRenderer.invoke("purge-printer-data");
+    printers.value = [];
+    printerCache.printers = null;
+    loading.value = false;
+    purgeMessage.value = "Donnees imprimantes purgees.";
+  } catch (error) {
+    console.error("Erreur purge donnees imprimantes:", error);
+    purgeMessage.value = "Impossible de purger les donnees imprimantes.";
+  } finally {
+    purging.value = false;
+  }
+}
+
+async function testPrinter(printer) {
   const config = { id: printer.id, ip: printer.ip };
-  ipcRenderer.send("test-printer", config);
+
+  try {
+    const result = await ipcRenderer.invoke("test-printer-protocols", config);
+    manualPrinterMessage.value = result.message || "Test termine.";
+  } catch (error) {
+    console.error("Erreur test imprimante:", error);
+    manualPrinterMessage.value = `Erreur test imprimante : ${error.message}`;
+  }
 }
 
 function findSavedConfig(saved, printer) {
@@ -317,17 +543,30 @@ async function loadPrinters(forceDiscovery = false) {
   if (!forceDiscovery && printerCache.printers) {
     printers.value = clone(printerCache.printers);
     useDiscoveryFilters.value = printerCache.useDiscoveryFilters;
+    discoveryModes.value = clone(printerCache.discoveryModes);
     loading.value = false;
+    return;
+  }
+
+  const hasSelectedMode = Object.values(discoveryModes.value).some(Boolean);
+  if (!hasSelectedMode) {
+    printers.value = [];
+    loading.value = false;
+    manualPrinterMessage.value =
+      "Selectionne au moins un mode de recherche : BT, USB, COM ou Scan IP.";
+    updatePrinterCache();
     return;
   }
 
   loading.value = true;
   printers.value = [];
+  manualPrinterMessage.value = "";
 
   try {
     const saved = await ipcRenderer.invoke("get-saved-printers");
     const discovered = await ipcRenderer.invoke("discover-printers", {
       useFilters: useDiscoveryFilters.value,
+      modes: clone(discoveryModes.value),
     });
 
     printers.value = discovered.map((printer) => {
@@ -387,6 +626,94 @@ onBeforeUnmount(() => {
 .filter-toggle input {
   width: 16px;
   height: 16px;
+}
+
+.discovery-modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.discovery-modes-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.discovery-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.discovery-modes input {
+  width: 16px;
+  height: 16px;
+}
+
+.manual-printer-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.manual-printer-form div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.manual-printer-form label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.manual-printer-form input {
+  min-width: 160px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+.manual-printer-form button {
+  background-color: #16a085;
+  border: none;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.manual-printer-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.manual-printer-message {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 14px;
+  white-space: pre-line;
 }
 
 .loading-state {
@@ -615,6 +942,53 @@ input:checked + .slider:before {
 
 #reload-btn:hover {
   background-color: #2980b9;
+}
+
+#purge-btn {
+  background-color: #dc2626;
+  border: none;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.2s;
+  margin-bottom: 10px;
+}
+
+#purge-btn:hover:not(:disabled) {
+  background-color: #b91c1c;
+}
+
+#purge-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+#debug-btn {
+  background-color: #475569;
+  border: none;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background 0.2s;
+  margin-bottom: 10px;
+}
+
+#debug-btn:hover {
+  background-color: #334155;
+}
+
+.purge-message {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 14px;
 }
 
 .no-printer {

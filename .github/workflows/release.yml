@@ -43,6 +43,16 @@ jobs:
       - name: Build Electron app
         run: npx electron-builder --win --publish never
 
+      - name: Prepare updater assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Path dist6/publish-assets -Force | Out-Null
+          Copy-Item -LiteralPath "dist6/latest.yml" -Destination "dist6/publish-assets/latest.yml" -Force
+          Copy-Item -LiteralPath "dist6/SmartEat Printer Agent Setup $version.exe" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe" -Force
+          Copy-Item -LiteralPath "dist6/SmartEat Printer Agent Setup $version.exe.blockmap" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe.blockmap" -Force
+          Copy-Item -LiteralPath "dist6/SmartEat Printer Agent $version.exe" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-$version.exe" -Force
+
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -56,10 +66,10 @@ jobs:
             --title $tag `
             --notes "SmartEat Printer Agent $tag" `
             --latest `
-            "dist6/latest.yml" `
-            "dist6/SmartEat Printer Agent Setup $($tag.TrimStart('v')).exe" `
-            "dist6/SmartEat Printer Agent Setup $($tag.TrimStart('v')).exe.blockmap" `
-            "dist6/SmartEat Printer Agent $($tag.TrimStart('v')).exe"
+            "dist6/publish-assets/latest.yml" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$($tag.TrimStart('v')).exe" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$($tag.TrimStart('v')).exe.blockmap" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-$($tag.TrimStart('v')).exe"
 
       - name: Publish manual workflow release
         if: github.event_name == 'workflow_dispatch'
@@ -76,10 +86,10 @@ jobs:
             --title $tag `
             --notes "SmartEat Printer Agent $tag" `
             --latest `
-            "dist6/latest.yml" `
-            "dist6/SmartEat Printer Agent Setup ${{ inputs.version }}.exe" `
-            "dist6/SmartEat Printer Agent Setup ${{ inputs.version }}.exe.blockmap" `
-            "dist6/SmartEat Printer Agent ${{ inputs.version }}.exe"
+            "dist6/publish-assets/latest.yml" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-${{ inputs.version }}.exe" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-${{ inputs.version }}.exe.blockmap" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-${{ inputs.version }}.exe"
 
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4

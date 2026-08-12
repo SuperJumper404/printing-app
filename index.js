@@ -291,9 +291,10 @@ function registerUpdateEvents() {
       title: "Mise a jour disponible",
       message: `Une nouvelle version est disponible (${info.version}).`,
       detail: "Voulez-vous la telecharger maintenant ?",
-      buttons: ["Telecharger", "Plus tard"],
+      buttons: ["Telecharger", "Plus tard", "Fermer"],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: 2,
+      noLink: true,
     });
 
     if (result.response === 0) {
@@ -920,6 +921,10 @@ ipcMain.handle("purge-printer-data", () => {
 ipcMain.handle("open-debug-console", () => {
   openDebugConsole();
   return { success: true, logPath: debugLogPath };
+});
+
+ipcMain.handle("get-app-version", () => {
+  return app.getVersion();
 });
 // -------------------------------------------------------------
 // 📡 Communication avec le front-end (printer.html)

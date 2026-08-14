@@ -285,6 +285,22 @@ function registerUpdateEvents() {
 
   autoUpdater.autoDownload = false;
 
+  const showUpdateError = (error, context = "mise a jour") => {
+    const detail = error?.message || String(error || "Erreur inconnue");
+    console.error(`Erreur ${context}:`, error);
+
+    if (!mainWindow) return;
+
+    dialog.showMessageBox(mainWindow, {
+      type: "error",
+      title: "Mise a jour impossible",
+      message: "Impossible de telecharger la mise a jour pour le moment.",
+      detail,
+      buttons: ["Fermer"],
+      noLink: true,
+    });
+  };
+
   autoUpdater.on("update-available", async (info) => {
     const result = await dialog.showMessageBox(mainWindow, {
       type: "info",
@@ -298,12 +314,32 @@ function registerUpdateEvents() {
     });
 
     if (result.response === 0) {
-      autoUpdater.downloadUpdate();
+      console.log(`Telechargement de la mise a jour ${info.version} demarre...`);
+      dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "Telechargement lance",
+        message: "La mise a jour se telecharge en arriere-plan.",
+        detail:
+          "Une nouvelle fenetre apparaitra automatiquement quand elle sera prete a installer.",
+        buttons: ["OK"],
+        noLink: true,
+      });
+
+      try {
+        await autoUpdater.downloadUpdate();
+      } catch (error) {
+        showUpdateError(error, "telechargement mise a jour");
+      }
     }
   });
 
   autoUpdater.on("update-not-available", () => {
     console.log("Aucune mise a jour disponible.");
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    const percent = Number(progress?.percent || 0).toFixed(1);
+    console.log(`Telechargement mise a jour: ${percent}%`);
   });
 
   autoUpdater.on("update-downloaded", async () => {
@@ -324,7 +360,7 @@ function registerUpdateEvents() {
   });
 
   autoUpdater.on("error", (error) => {
-    console.error("Erreur de mise a jour:", error);
+    showUpdateError(error);
   });
 }
 

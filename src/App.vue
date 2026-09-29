@@ -60,7 +60,7 @@ onMounted(async () => {
 <style>
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: "Segoe UI", Tahoma, sans-serif;
 }
 .sidebar {
   width: 230px;
@@ -99,7 +99,45 @@ body {
   opacity: 0.9;
 }
 .main-content {
-  margin-left: 150px;
+  margin-left: 230px;
   padding: 20px;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    padding: 12px 16px;
+    overflow: visible;
+  }
+
+  .sidebar h2 {
+    margin-bottom: 8px;
+    font-size: 18px;
+  }
+
+  .sidebar nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .sidebar a {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+
+  .app-version {
+    display: none;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 0;
+  }
 }
 </style>

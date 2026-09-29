@@ -1252,9 +1252,11 @@ ipcMain.handle("test-printer-protocols", async (_, config) => {
   const savedPrinters = migratePrinterConfigurations(
     store.get("printers", [])
   );
-  const currentPrinter = savedPrinters.find(
-    (printer) => printer.id === config.id || printer.ip === config.ip
-  );
+  const currentPrinter = config?.transports
+    ? migratePrinterConfigurations([config])[0]
+    : savedPrinters.find(
+        (printer) => printer.id === config.id || printer.ip === config.ip
+      );
 
   if (!currentPrinter) {
     return {

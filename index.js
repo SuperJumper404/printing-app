@@ -347,6 +347,18 @@ const printerTransportSenders = {
   eposHttp: createEposHttpSender({ fetch }),
   usbSerial: serialSender,
   bluetoothSerial: serialSender,
+  usbRaw: {
+    send({ transport, base64Data }) {
+      if (!deviceBridgeClient) {
+        return Promise.reject(new Error("Pont USB indisponible"));
+      }
+      return deviceBridgeClient.request(
+        "usbRaw.send",
+        { config: transport.config, base64Data },
+        10000
+      );
+    },
+  },
 };
 
 // -------------------------------------------------------------

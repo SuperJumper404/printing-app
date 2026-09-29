@@ -11,6 +11,9 @@ export default defineConfig({
   build: {
     outDir: "../frontend/dist", // la sortie (build Vue) ira ici
     emptyOutDir: true,
+    commonjsOptions: {
+      include: [/node_modules/, /lib[\\/]printers[\\/]/],
+    },
   },
   resolve: {
     alias: {

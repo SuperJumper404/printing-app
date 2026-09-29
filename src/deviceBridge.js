@@ -1,3 +1,8 @@
+import {
+  findAuthorizedUsbDevice,
+  sendUsbEscPos,
+} from "./printers/webUsbTransport";
+
 const operations = new Map();
 let bridgeStarted = false;
 
@@ -38,3 +43,9 @@ export function startDeviceBridge() {
     ipcRenderer.send("printer-device-response", response);
   });
 }
+
+registerDeviceOperation("usbRaw.send", async ({ config, base64Data }) => {
+  const device = await findAuthorizedUsbDevice(config);
+  const bytes = Uint8Array.from(atob(base64Data), (character) => character.charCodeAt(0));
+  return sendUsbEscPos(device, config, bytes);
+});

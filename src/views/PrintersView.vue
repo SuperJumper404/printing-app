@@ -105,6 +105,15 @@
                   >
                     {{ printer.testResults[row.id].success ? "Envoi accepte" : printer.testResults[row.id].error }}
                   </span>
+                  <button
+                    v-if="row.id === 'usbRaw'"
+                    class="authorize-button"
+                    type="button"
+                    :disabled="printer.authorizationPending === row.id"
+                    @click="authorizeTransport(printer, row.id)"
+                  >
+                    {{ printer.transports[row.id].config.authorized ? "Reautoriser" : "Autoriser" }}
+                  </button>
                   <label class="switch" :title="row.controlDisabled ? row.reason : `Activer ${row.label}`">
                     <input
                       v-model="printer.transports[row.id].enabled"
@@ -171,6 +180,7 @@ import {
   getTransportRows,
   mergePrinterConfiguration,
 } from "../printers/transportPresentation.mjs";
+import { authorizeUsbDevice } from "../printers/webUsbTransport";
 
 const { ipcRenderer } = window.require("electron");
 
@@ -230,6 +240,30 @@ function transportChanged(printer, transportId) {
     printer.transports[transportId].verified = false;
   }
   savePrinterConfig();
+}
+
+async function authorizeTransport(printer, transportId) {
+  printer.authorizationPending = transportId;
+  try {
+    if (transportId !== "usbRaw") throw new Error("Autorisation non prise en charge");
+    const config = await authorizeUsbDevice({
+      ...printer.transports[transportId].config,
+      vendorId: printer.vendorId || printer.transports[transportId].config.vendorId,
+      productId: printer.productId || printer.transports[transportId].config.productId,
+      serialNumber: printer.serialNumber || printer.transports[transportId].config.serialNumber,
+    });
+    printer.transports[transportId].config = { ...config, authorized: true };
+    printer.transports[transportId].reason = null;
+    pageMessage.value = "Peripherique USB autorise.";
+    savePrinterConfig();
+  } catch (error) {
+    printer.transports[transportId].config.authorized = false;
+    printer.transports[transportId].reason = `Autorisation USB requise : ${error.message}`;
+    pageMessage.value = printer.transports[transportId].reason;
+  } finally {
+    printer.authorizationPending = null;
+    updatePrinterCache();
+  }
 }
 
 function findSavedConfig(saved, printer) {
@@ -694,6 +728,19 @@ select:disabled {
   font-size: 12px;
   font-weight: 700;
 }
+.authorize-button {
+  border: 1px solid #8aa2c2;
+  border-radius: 5px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #294e7a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.authorize-button:hover:not(:disabled) { background: #edf4fb; }
+.authorize-button:disabled { cursor: wait; opacity: 0.55; }
 .verified,
 .test-result.success { color: #087f5b; }
 .test-result.failure { max-width: 280px; color: #a13b3b; text-align: right; }

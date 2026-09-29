@@ -81,6 +81,7 @@ const loading = ref(true);
 const reprintingId = ref(null);
 const openingPdfId = ref(null);
 let pollingInterval = null;
+let pollingInProgress = false;
 
 async function loadHistory() {
   loading.value = true;
@@ -94,8 +95,13 @@ async function loadHistory() {
 }
 
 async function pollPrintingJobs() {
-  if (!userSession.value?.shopid || !configVars?.pullPrintingJobUrl) return;
+  if (
+    pollingInProgress ||
+    !userSession.value?.shopid ||
+    !configVars?.pullPrintingJobUrl
+  ) return;
 
+  pollingInProgress = true;
   try {
     const printingJobs = await axios.post(configVars.pullPrintingJobUrl, {
       ID: userSession.value.shopid,
@@ -103,12 +109,17 @@ async function pollPrintingJobs() {
 
     if (printingJobs.data?.data) {
       for (const job of printingJobs.data.data) {
-        await ipcRenderer.invoke("print-job", job);
+        const result = await ipcRenderer.invoke("print-job", job);
+        if (!result.success) {
+          console.error("Echec impression du ticket:", result.error, result.results);
+        }
       }
       await loadHistory();
     }
   } catch (error) {
     console.error("Erreur recuperation impressions:", error);
+  } finally {
+    pollingInProgress = false;
   }
 }
 

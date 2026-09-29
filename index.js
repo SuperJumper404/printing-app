@@ -71,6 +71,12 @@ const {
   migratePrinterConfigurations,
 } = require("./lib/printers/configMigration");
 const {
+  deviceMetadata,
+  findUniqueMatchingDevice,
+  identityMatchesDevice,
+  isTrustedDeviceOrigin,
+} = require("./lib/printers/devicePermissions");
+const {
   dispatchEscPosJob,
   testPrinterTransports,
 } = require("./lib/printers/dispatch");
@@ -217,55 +223,7 @@ async function runPowerShellJson(script, env = {}) {
 }
 
 const pendingDeviceSelections = new Map();
-
-function normalizeDeviceHex(value) {
-  if (value === undefined || value === null || value === "") return null;
-  const numeric = typeof value === "number" ? value.toString(16) : String(value);
-  return numeric.replace(/^0x/i, "").toUpperCase().padStart(4, "0");
-}
-
-function deviceMetadata(deviceType, device) {
-  return {
-    deviceType,
-    deviceId: device.deviceId || null,
-    vendorId: normalizeDeviceHex(device.vendorId),
-    productId: normalizeDeviceHex(device.productId),
-    serialNumber: device.serialNumber || null,
-    name: device.deviceName || device.productName || device.name || null,
-  };
-}
-
-function identityMatchesDevice(identity = {}, device = {}) {
-  if (identity.deviceId && device.deviceId === identity.deviceId) return true;
-  const vendorMatches =
-    normalizeDeviceHex(identity.vendorId) &&
-    normalizeDeviceHex(identity.vendorId) === normalizeDeviceHex(device.vendorId);
-  const productMatches =
-    normalizeDeviceHex(identity.productId) &&
-    normalizeDeviceHex(identity.productId) === normalizeDeviceHex(device.productId);
-  if (vendorMatches && productMatches) {
-    if (!identity.serialNumber) return true;
-    return String(identity.serialNumber) === String(device.serialNumber || "");
-  }
-  if (identity.name) {
-    return String(identity.name) === String(device.deviceName || device.productName || "");
-  }
-  return false;
-}
-
-function isTrustedDeviceOrigin(origin) {
-  try {
-    const url = new URL(origin);
-    if (url.protocol === "file:") return true;
-    return (
-      url.protocol === "http:" &&
-      ["localhost", "127.0.0.1"].includes(url.hostname) &&
-      url.port === "5173"
-    );
-  } catch {
-    return false;
-  }
-}
+let pendingBluetoothSelection = null;
 
 function saveDeviceGrant(deviceType, device) {
   const grants = store.get("devicePermissionGrants", []);
@@ -301,35 +259,57 @@ function configureDevicePermissions(window) {
       );
   });
 
-  const selectDevice = (deviceType, event, devices, callback, cancelValue) => {
-    event.preventDefault();
+  const selectDevice = (deviceType, devices, callback, cancelValue) => {
     const identity = pendingDeviceSelections.get(deviceType);
     pendingDeviceSelections.delete(deviceType);
     if (!identity) {
       callback(cancelValue);
       return;
     }
-    const matches = devices.filter((device) => identityMatchesDevice(identity, device));
-    if (matches.length !== 1) {
+    const device = findUniqueMatchingDevice(devices, identity);
+    if (!device) {
       callback(cancelValue);
       return;
     }
-    saveDeviceGrant(deviceType, matches[0]);
-    callback(matches[0].deviceId);
+    saveDeviceGrant(deviceType, device);
+    callback(device.deviceId);
   };
 
   session.on("select-usb-device", (event, details, callback) => {
+    event.preventDefault();
     const origin = details.frame?.url || "";
     if (!isTrustedDeviceOrigin(origin)) return callback();
-    selectDevice("usb", event, details.deviceList, callback, undefined);
+    selectDevice("usb", details.deviceList, callback, undefined);
   });
   session.on("select-hid-device", (event, details, callback) => {
+    event.preventDefault();
     const origin = details.frame?.url || "";
     if (!isTrustedDeviceOrigin(origin)) return callback(null);
-    selectDevice("hid", event, details.deviceList, callback, null);
+    selectDevice("hid", details.deviceList, callback, null);
   });
   window.webContents.on("select-bluetooth-device", (event, devices, callback) => {
-    selectDevice("bluetooth", event, devices, callback, "");
+    event.preventDefault();
+    if (!pendingBluetoothSelection) return callback("");
+
+    pendingBluetoothSelection.callback = callback;
+    const device = findUniqueMatchingDevice(
+      devices,
+      pendingBluetoothSelection.identity
+    );
+    if (!device) return;
+
+    clearTimeout(pendingBluetoothSelection.timer);
+    pendingBluetoothSelection = null;
+    saveDeviceGrant("bluetooth", device);
+    callback(device.deviceId);
+  });
+
+  window.webContents.once("destroyed", () => {
+    pendingDeviceSelections.clear();
+    if (!pendingBluetoothSelection) return;
+    clearTimeout(pendingBluetoothSelection.timer);
+    pendingBluetoothSelection.callback?.("");
+    pendingBluetoothSelection = null;
   });
 }
 
@@ -337,6 +317,26 @@ ipcMain.on("printer-device-selection-intent", (event, request = {}) => {
   if (event.sender !== mainWindow?.webContents) return;
   if (!["usb", "hid", "bluetooth"].includes(request.deviceType)) return;
   if (!request.identity || typeof request.identity !== "object") return;
+
+  if (request.deviceType === "bluetooth") {
+    if (pendingBluetoothSelection) {
+      clearTimeout(pendingBluetoothSelection.timer);
+      pendingBluetoothSelection.callback?.("");
+    }
+    const selection = {
+      identity: { ...request.identity },
+      callback: null,
+      timer: null,
+    };
+    selection.timer = setTimeout(() => {
+      if (pendingBluetoothSelection !== selection) return;
+      pendingBluetoothSelection = null;
+      selection.callback?.("");
+    }, 30000);
+    pendingBluetoothSelection = selection;
+    return;
+  }
+
   pendingDeviceSelections.set(request.deviceType, { ...request.identity });
 });
 
@@ -408,6 +408,12 @@ function createWindow() {
       event.preventDefault();
       mainWindow.hide();
     }
+  });
+
+  configureDevicePermissions(mainWindow);
+  deviceBridgeClient?.dispose();
+  deviceBridgeClient = createDeviceBridgeClient(mainWindow.webContents, {
+    ipc: ipcMain,
   });
 
   if (process.env.NODE_ENV === "development") {
@@ -1141,12 +1147,6 @@ ipcMain.handle("discover-printers", async (_, options = {}) => {
     return true;
   });
 
-  configureDevicePermissions(mainWindow);
-  deviceBridgeClient?.dispose();
-  deviceBridgeClient = createDeviceBridgeClient(mainWindow.webContents, {
-    ipc: ipcMain,
-  });
-
   const networkPrinters = modes.ipScan ? await discoverIpPrinters() : [];
   const networkObservations = networkPrinters.map((printer) => ({
     ...printer,
@@ -1803,28 +1803,23 @@ appServer.post("/print", async (req, res) => {
 });
 
 appServer.post("/print-legacy", async (req, res) => {
-  const savedPrinters = store.get("printers", []);
-  const tickeType = req.body.ticketType;
-  const activedPrinters = savedPrinters.filter((x) => x.ticketTypes[tickeType]);
-
-  activedPrinters.forEach((printer) => {
-    let activePortocols = Object.entries(printer.protocols)
-      .filter(([_, enabled]) => enabled)
-      .map(([port]) => parseInt(port, 10));
-
-    activePortocols.forEach(async (activeProtocol) => {
-      if (activeProtocol === 9100)
-        await printESCPOS(printer.ip, req.body.dataFormatESCPOS);
-    });
-  });
-  // console.log(`🖨️ Requête impression reçue pour ${ip}`);
-  console.log("TEXT a Imprimer", req.body);
   try {
-    // await printESCPOS(ip, text);
-    res.json({ success: true, message: `Impression envoyée à ${ip}` });
+    const result = await printTicketPayload(req.body);
+    const historyEntry = addPrintHistoryEntry(req.body, result);
+    res.status(result.success ? 200 : 500).json({
+      ...result,
+      historyEntry,
+      message: result.success
+        ? `Impression envoyee a ${result.transportCount} transport(s)`
+        : result.error,
+    });
   } catch (err) {
-    console.error("❌ Erreur impression:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    const historyEntry = addPrintHistoryEntry(req.body, {
+      success: false,
+      error: err.message,
+    });
+    console.error("Erreur impression legacy:", err.message);
+    res.status(500).json({ success: false, error: err.message, historyEntry });
   }
 });
 

@@ -83,6 +83,9 @@ const { createIppSender } = require("./lib/printers/transports/ipp");
 const {
   createEposHttpSender,
 } = require("./lib/printers/transports/eposHttp");
+const {
+  createDeviceBridgeClient,
+} = require("./lib/printers/deviceBridgeClient");
 
 const escpos = require("escpos");
 const Network = require("escpos-network");
@@ -90,6 +93,7 @@ escpos.Network = Network;
 console.log("Process Platform", process.platform);
 
 let mainWindow = null;
+let deviceBridgeClient = null;
 let tray = null;
 let isQuitting = false;
 let updateEventsRegistered = false;
@@ -210,6 +214,130 @@ async function runPowerShellJson(script, env = {}) {
     return [];
   }
 }
+
+const pendingDeviceSelections = new Map();
+
+function normalizeDeviceHex(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const numeric = typeof value === "number" ? value.toString(16) : String(value);
+  return numeric.replace(/^0x/i, "").toUpperCase().padStart(4, "0");
+}
+
+function deviceMetadata(deviceType, device) {
+  return {
+    deviceType,
+    deviceId: device.deviceId || null,
+    vendorId: normalizeDeviceHex(device.vendorId),
+    productId: normalizeDeviceHex(device.productId),
+    serialNumber: device.serialNumber || null,
+    name: device.deviceName || device.productName || device.name || null,
+  };
+}
+
+function identityMatchesDevice(identity = {}, device = {}) {
+  if (identity.deviceId && device.deviceId === identity.deviceId) return true;
+  const vendorMatches =
+    normalizeDeviceHex(identity.vendorId) &&
+    normalizeDeviceHex(identity.vendorId) === normalizeDeviceHex(device.vendorId);
+  const productMatches =
+    normalizeDeviceHex(identity.productId) &&
+    normalizeDeviceHex(identity.productId) === normalizeDeviceHex(device.productId);
+  if (vendorMatches && productMatches) {
+    if (!identity.serialNumber) return true;
+    return String(identity.serialNumber) === String(device.serialNumber || "");
+  }
+  if (identity.name) {
+    return String(identity.name) === String(device.deviceName || device.productName || "");
+  }
+  return false;
+}
+
+function isTrustedDeviceOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "file:") return true;
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(url.hostname) &&
+      url.port === "5173"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function saveDeviceGrant(deviceType, device) {
+  const grants = store.get("devicePermissionGrants", []);
+  const metadata = deviceMetadata(deviceType, device);
+  const withoutDuplicate = grants.filter(
+    (grant) =>
+      !(
+        grant.deviceType === deviceType &&
+        ((metadata.deviceId && grant.deviceId === metadata.deviceId) ||
+          (metadata.serialNumber &&
+            grant.vendorId === metadata.vendorId &&
+            grant.productId === metadata.productId &&
+            grant.serialNumber === metadata.serialNumber))
+      )
+  );
+  store.set("devicePermissionGrants", [...withoutDuplicate, metadata]);
+}
+
+function configureDevicePermissions(window) {
+  const { session } = window.webContents;
+  session.setPermissionCheckHandler((_, permission, requestingOrigin) => {
+    if (!isTrustedDeviceOrigin(requestingOrigin)) return false;
+    return permission === "usb" || permission === "hid";
+  });
+  session.setDevicePermissionHandler((details) => {
+    if (!isTrustedDeviceOrigin(details.origin)) return false;
+    return store
+      .get("devicePermissionGrants", [])
+      .some(
+        (grant) =>
+          grant.deviceType === details.deviceType &&
+          identityMatchesDevice(grant, details.device)
+      );
+  });
+
+  const selectDevice = (deviceType, event, devices, callback, cancelValue) => {
+    event.preventDefault();
+    const identity = pendingDeviceSelections.get(deviceType);
+    pendingDeviceSelections.delete(deviceType);
+    if (!identity) {
+      callback(cancelValue);
+      return;
+    }
+    const matches = devices.filter((device) => identityMatchesDevice(identity, device));
+    if (matches.length !== 1) {
+      callback(cancelValue);
+      return;
+    }
+    saveDeviceGrant(deviceType, matches[0]);
+    callback(matches[0].deviceId);
+  };
+
+  session.on("select-usb-device", (event, details, callback) => {
+    const origin = details.frame?.url || "";
+    if (!isTrustedDeviceOrigin(origin)) return callback();
+    selectDevice("usb", event, details.deviceList, callback, undefined);
+  });
+  session.on("select-hid-device", (event, details, callback) => {
+    const origin = details.frame?.url || "";
+    if (!isTrustedDeviceOrigin(origin)) return callback(null);
+    selectDevice("hid", event, details.deviceList, callback, null);
+  });
+  window.webContents.on("select-bluetooth-device", (event, devices, callback) => {
+    selectDevice("bluetooth", event, devices, callback, "");
+  });
+}
+
+ipcMain.on("printer-device-selection-intent", (event, request = {}) => {
+  if (event.sender !== mainWindow?.webContents) return;
+  if (!["usb", "hid", "bluetooth"].includes(request.deviceType)) return;
+  if (!request.identity || typeof request.identity !== "object") return;
+  pendingDeviceSelections.set(request.deviceType, { ...request.identity });
+});
 
 const serialSender = createSerialSender({ runPowerShell });
 const printerTransportSenders = {
@@ -973,6 +1101,12 @@ ipcMain.handle("discover-printers", async (_, options = {}) => {
       return modes.com;
     }
     return true;
+  });
+
+  configureDevicePermissions(mainWindow);
+  deviceBridgeClient?.dispose();
+  deviceBridgeClient = createDeviceBridgeClient(mainWindow.webContents, {
+    ipc: ipcMain,
   });
 
   const networkPrinters = modes.ipScan ? await discoverIpPrinters() : [];

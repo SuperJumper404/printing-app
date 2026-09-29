@@ -209,7 +209,7 @@ const { ipcRenderer } = window.require("electron");
 
 window.__smarteatPrinterDiscoveryCache ||= {
   printers: null,
-  useDiscoveryFilters: true,
+  useDiscoveryFilters: false,
   discoveryModes: {
     bluetooth: true,
     usb: true,

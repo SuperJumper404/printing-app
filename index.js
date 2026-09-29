@@ -61,7 +61,15 @@ const ipp = require("ipp");
 const express = require("express");
 const os = require("os");
 const bodyParser = require("body-parser");
-const { buildUsbPrintersFromDevices } = require("./lib/printerDiscovery");
+const {
+  discoverWindowsPrinterObservations,
+} = require("./lib/printers/discovery/windows");
+const {
+  correlatePrinterObservations,
+} = require("./lib/printers/correlateDevices");
+const {
+  migratePrinterConfigurations,
+} = require("./lib/printers/configMigration");
 
 const escpos = require("escpos");
 const Network = require("escpos-network");
@@ -645,27 +653,6 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
       });
     }
 
-    if (device.source === "pnp-usbprint" && device.name) {
-      const id = `usb-pnp-${device.pnpDeviceId || device.name}`;
-      if (!printers.has(id)) {
-        printers.set(id, {
-          id,
-          name: `${device.name} (driver non installe)`,
-          type: "usb",
-          connectionType: "usb",
-          printerName: null,
-          portName: device.portName || null,
-          protocol: "usb-detected",
-          driverName: device.driverName || null,
-          status: device.status || null,
-          pnpDeviceId: device.pnpDeviceId || null,
-          availableProtocols: {
-            usbSerial: false,
-            usbWindowsSpooler: false,
-          },
-        });
-      }
-    }
   }
 
   return [...printers.values()];
@@ -760,6 +747,7 @@ async function discoverUsbPrinters({ useFilters = true } = {}) {
   const devices = await runPowerShellJson(script, {
     SMARTEAT_USE_FILTERS: String(useFilters),
   });
+  const { buildUsbPrintersFromDevices } = require("./lib/printerDiscovery");
   return buildUsbPrintersFromDevices(devices);
 }
 
@@ -916,8 +904,7 @@ ipcMain.handle("check-local-printer-online", async (_, printer) => {
 
 // 📂 Lecture des préférences sauvegardées
 ipcMain.handle("get-saved-printers", () => {
-  const savedPrinters = store.get("printers", []);
-  return savedPrinters;
+  return migratePrinterConfigurations(store.get("printers", []));
 });
 
 ipcMain.handle("purge-printer-data", () => {
@@ -939,41 +926,64 @@ ipcMain.handle("get-app-version", () => {
 // 📡 Communication avec le front-end (printer.html)
 // -------------------------------------------------------------
 ipcMain.handle("discover-printers", async (_, options = {}) => {
-  const useFilters = options.useFilters !== false;
+  const useFilters = options.useFilters === true;
   const modes = {
     bluetooth: options.modes?.bluetooth !== false,
     usb: options.modes?.usb !== false,
     com: options.modes?.com !== false,
     ipScan: options.modes?.ipScan !== false,
   };
-  const networkPrinters = modes.ipScan ? await discoverIpPrinters() : [];
-  const bluetoothPrinters = modes.bluetooth
-    ? await discoverBluetoothPrinters({ useFilters })
-    : [];
-  const usbPrinters = modes.usb ? await discoverUsbPrinters({ useFilters }) : [];
-  const localPrinters = modes.com
-    ? await discoverLocalPrinterQueues({ useFilters })
-    : [];
+  const windowsObservations =
+    process.platform === "win32" && (modes.bluetooth || modes.usb || modes.com)
+      ? await discoverWindowsPrinterObservations(runPowerShellJson, { useFilters })
+      : [];
+  const selectedWindowsObservations = windowsObservations.filter((observation) => {
+    const transports = observation.transports || {};
+    const portName = String(
+      observation.portName || transports.windowsRaw?.config?.portName || ""
+    );
+    if (transports.bluetoothSerial || transports.bluetoothGatt) return modes.bluetooth;
+    if (transports.usbRaw || transports.usbHid || transports.usbSerial) return modes.usb;
+    if (transports.windowsRaw) {
+      if (/BTH|Bluetooth/i.test(portName)) return modes.bluetooth;
+      if (/USB|DOT4/i.test(portName)) return modes.usb;
+      return modes.com;
+    }
+    return true;
+  });
 
-  return [
-    ...networkPrinters.map((printer) => ({
-      ...printer,
-      id: printer.ip || Math.random().toString(36).slice(2),
-      connectionType: "network",
-      availableProtocols: {
-        9100: true,
-        631: true,
-        515: true,
-        80: true,
+  const networkPrinters = modes.ipScan ? await discoverIpPrinters() : [];
+  const networkObservations = networkPrinters.map((printer) => ({
+    ...printer,
+    observationId: `network:${printer.ip}:9100`,
+    addresses: [printer.ip],
+    transports: {
+      network9100: {
+        available: true,
+        enabled: false,
+        verified: false,
+        config: { host: printer.ip, port: 9100 },
+        reason: null,
       },
-    })),
-    ...bluetoothPrinters,
-    ...usbPrinters,
-    ...localPrinters,
-  ];
+    },
+  }));
+  const savedAssociations = migratePrinterConfigurations(
+    store.get("printers", [])
+  ).map((printer) => ({
+    printerId: printer.id,
+    observationIds: (printer.observations || [])
+      .map((observation) => observation.observationId || observation.id)
+      .filter(Boolean),
+  }));
+
+  return correlatePrinterObservations(
+    [...selectedWindowsObservations, ...networkObservations],
+    savedAssociations
+  );
 });
 
 ipcMain.on("save-printer-config", (event, printers) => {
+  printers = migratePrinterConfigurations(printers);
   store.set("printers", printers);
   console.log("💾 Config sauvegardée :", printers);
 });

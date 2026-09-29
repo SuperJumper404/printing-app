@@ -1,17 +1,17 @@
 {
   "name": "printing-app",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "",
   "main": "index.js",
-    "scripts": {
-      "test": "npm.cmd run test:discovery && npm.cmd run test:printers && npm.cmd run test:shared",
-      "test:discovery": "node --test test/*.test.cjs",
-      "test:printers": "node --test test/printers/*.test.cjs",
-      "test:shared": "node --test packages/shared/test/*.test.js",
-      "verify": "npm.cmd test && node --check index.js && npm.cmd run build:web",
-      "release:win": "npm.cmd run build:web && electron-builder --win --publish never",
-      "build": "electron-builder",
-      "build:web": "vite build",
+  "scripts": {
+    "test": "npm.cmd run test:discovery && npm.cmd run test:printers && npm.cmd run test:shared",
+    "test:discovery": "node --test test/*.test.cjs",
+    "test:printers": "node --test test/printers/*.test.cjs",
+    "test:shared": "node --test packages/shared/test/*.test.js",
+    "verify": "npm.cmd test && node --check index.js && npm.cmd run build:web",
+    "release:win": "npm.cmd run build:web && electron-builder --win --publish never",
+    "build": "electron-builder",
+    "build:web": "vite build",
     "android:sync": "npm.cmd run build:web && npx.cmd cap sync android",
     "android:open": "npx.cmd cap open android",
     "android:run": "npm.cmd run build:web && npx.cmd cap run android"

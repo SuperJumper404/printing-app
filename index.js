@@ -70,6 +70,19 @@ const {
 const {
   migratePrinterConfigurations,
 } = require("./lib/printers/configMigration");
+const {
+  dispatchEscPosJob,
+  testPrinterTransports,
+} = require("./lib/printers/dispatch");
+const {
+  createWindowsRawSender,
+} = require("./lib/printers/transports/windowsRaw");
+const { createSerialSender } = require("./lib/printers/transports/serial");
+const { createNetworkSender } = require("./lib/printers/transports/network");
+const { createIppSender } = require("./lib/printers/transports/ipp");
+const {
+  createEposHttpSender,
+} = require("./lib/printers/transports/eposHttp");
 
 const escpos = require("escpos");
 const Network = require("escpos-network");
@@ -197,6 +210,16 @@ async function runPowerShellJson(script, env = {}) {
     return [];
   }
 }
+
+const serialSender = createSerialSender({ runPowerShell });
+const printerTransportSenders = {
+  windowsRaw: createWindowsRawSender({ runPowerShell }),
+  network9100: createNetworkSender({ createSocket: () => new net.Socket() }),
+  ipp: createIppSender({ createPrinter: (url) => ipp.Printer(url) }),
+  eposHttp: createEposHttpSender({ fetch }),
+  usbSerial: serialSender,
+  bluetoothSerial: serialSender,
+};
 
 // -------------------------------------------------------------
 // 🪟 Fenêtre principale
@@ -1017,6 +1040,8 @@ function addPrintHistoryEntry(payload, result) {
     status: result.success ? "success" : "error",
     printerCount: result.printerCount || 0,
     protocolCount: result.protocolCount || 0,
+    transportCount: result.transportCount || 0,
+    results: result.results || [],
     error: result.error || null,
     payload,
   };
@@ -1182,53 +1207,10 @@ async function openTicketPdf(historyId) {
 }
 
 async function printTicketPayload(payload) {
-  const savedPrinters = store.get("printers", []);
-  const ticketType = payload.ticketType;
-  const activePrinters = savedPrinters.filter(
-    (printer) => printer.ticketTypes?.[ticketType]
+  const savedPrinters = migratePrinterConfigurations(
+    store.get("printers", [])
   );
-  const printTasks = [];
-
-  activePrinters.forEach((printer) => {
-    const activeProtocols = Object.entries(printer.protocols || {})
-      .filter(([_, enabled]) => enabled)
-      .map(([protocol]) => protocol);
-
-    activeProtocols.forEach((activeProtocol) => {
-      if (printer.connectionType === "bluetooth") {
-        printTasks.push(
-          printBluetooth(printer, payload.dataFormatESCPOS, activeProtocol)
-        );
-        return;
-      }
-
-      if (printer.connectionType === "usb") {
-        printTasks.push(printUsb(printer, payload.dataFormatESCPOS, activeProtocol));
-        return;
-      }
-
-      if (printer.connectionType === "local") {
-        printTasks.push(
-          printLocal(printer, payload.dataFormatESCPOS, activeProtocol)
-        );
-        return;
-      }
-
-      const port = parseInt(activeProtocol, 10);
-      if (port === 9100) {
-        printTasks.push(
-          printESCPOS(printer.ip, payload.dataFormatESCPOS, printer.port || 9100)
-        );
-      }
-    });
-  });
-
-  await Promise.all(printTasks);
-
-  return {
-    printerCount: activePrinters.length,
-    protocolCount: printTasks.length,
-  };
+  return dispatchEscPosJob(payload, savedPrinters, printerTransportSenders);
 }
 
 ipcMain.handle("get-print-history", () => {
@@ -1243,20 +1225,9 @@ ipcMain.handle("reprint-ticket", async (_, historyId) => {
     throw new Error("Ticket introuvable dans l'historique");
   }
 
-  try {
-    const result = await printTicketPayload(entry.payload);
-    const historyEntry = addPrintHistoryEntry(entry.payload, {
-      success: true,
-      ...result,
-    });
-    return { success: true, historyEntry };
-  } catch (error) {
-    const historyEntry = addPrintHistoryEntry(entry.payload, {
-      success: false,
-      error: error.message,
-    });
-    throw new Error(historyEntry.error);
-  }
+  const result = await printTicketPayload(entry.payload);
+  const historyEntry = addPrintHistoryEntry(entry.payload, result);
+  return { ...result, historyEntry };
 });
 
 ipcMain.handle("open-ticket-pdf", async (_, historyId) => {
@@ -1266,11 +1237,8 @@ ipcMain.handle("open-ticket-pdf", async (_, historyId) => {
 ipcMain.handle("print-job", async (_, job) => {
   try {
     const result = await printTicketPayload(job);
-    const historyEntry = addPrintHistoryEntry(job, {
-      success: true,
-      ...result,
-    });
-    return { success: true, historyEntry };
+    const historyEntry = addPrintHistoryEntry(job, result);
+    return { ...result, historyEntry };
   } catch (error) {
     const historyEntry = addPrintHistoryEntry(job, {
       success: false,
@@ -1281,7 +1249,9 @@ ipcMain.handle("print-job", async (_, job) => {
 });
 
 ipcMain.handle("test-printer-protocols", async (_, config) => {
-  const savedPrinters = store.get("printers", []);
+  const savedPrinters = migratePrinterConfigurations(
+    store.get("printers", [])
+  );
   const currentPrinter = savedPrinters.find(
     (printer) => printer.id === config.id || printer.ip === config.ip
   );
@@ -1293,39 +1263,22 @@ ipcMain.handle("test-printer-protocols", async (_, config) => {
     };
   }
 
-  const activeProtocols = Object.entries(currentPrinter.protocols || {})
-    .filter(([_, enabled]) => enabled)
-    .map(([protocol]) => protocol);
-
-  if (!activeProtocols.length) {
-    return {
-      success: false,
-      message: "Aucun protocole actif pour cette imprimante",
-    };
-  }
-
-  const results = [];
-
-  for (const protocol of activeProtocols) {
-    try {
-      await testPrinterProtocol(currentPrinter, protocol);
-      results.push({ protocol, success: true });
-    } catch (error) {
-      console.error(`Erreur test protocole ${protocol}:`, error);
-      results.push({ protocol, success: false, error: error.message });
-    }
-  }
-
+  const result = await testPrinterTransports(
+    currentPrinter,
+    buildTestPayload(currentPrinter.name),
+    printerTransportSenders
+  );
   return {
-    success: results.every((result) => result.success),
-    results,
-    message: results
+    ...result,
+    message: result.results.length
+      ? result.results
       .map((result) =>
         result.success
-          ? `${getProtocolLabel(result.protocol)}: OK`
-          : `${getProtocolLabel(result.protocol)}: ${result.error}`
+          ? `${getProtocolLabel(result.transportId)}: OK`
+          : `${getProtocolLabel(result.transportId)}: ${result.error}`
       )
-      .join("\n"),
+      .join("\n")
+      : result.error,
   };
 });
 
@@ -1448,6 +1401,16 @@ ipcMain.on("test-printer", (event, config) => {
 
 function getProtocolLabel(protocol) {
   const labels = {
+    windowsRaw: "File Windows RAW",
+    network9100: "ESC/POS reseau 9100",
+    ipp: "IPP",
+    lpr: "LPR",
+    eposHttp: "Epson ePOS HTTP",
+    usbSerial: "USB COM",
+    bluetoothSerial: "Bluetooth COM",
+    usbRaw: "USB direct",
+    usbHid: "USB HID",
+    bluetoothGatt: "Bluetooth GATT",
     9100: "ESC/POS 9100",
     631: "IPP 631",
     515: "LPR 515",
@@ -1644,17 +1607,17 @@ appServer.get("/test", (req, res) => {
 appServer.post("/print", async (req, res) => {
   try {
     const result = await printTicketPayload(req.body);
-    const historyEntry = addPrintHistoryEntry(req.body, {
-      success: true,
-      ...result,
-    });
+    const historyEntry = addPrintHistoryEntry(req.body, result);
 
     console.log("TEXT a Imprimer", req.body);
-    res.json({
-      success: true,
+    const response = {
+      ...result,
       historyEntry,
-      message: `Impression envoyee a ${result.protocolCount} protocole(s)`,
-    });
+      message: result.success
+        ? `Impression envoyee a ${result.transportCount} transport(s)`
+        : result.error,
+    };
+    res.status(result.success ? 200 : 500).json(response);
   } catch (err) {
     const historyEntry = addPrintHistoryEntry(req.body, {
       success: false,

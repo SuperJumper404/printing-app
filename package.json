@@ -8,6 +8,7 @@
       "test:discovery": "node --test test/*.test.cjs",
       "test:printers": "node --test test/printers/*.test.cjs",
       "test:shared": "node --test packages/shared/test/*.test.js",
+      "verify": "npm.cmd test && node --check index.js && npm.cmd run build:web",
       "release:win": "npm.cmd run build:web && electron-builder --win --publish never",
       "build": "electron-builder",
       "build:web": "vite build",

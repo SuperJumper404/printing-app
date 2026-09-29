@@ -28,6 +28,46 @@ npm.cmd run release:win
 
 The files are written to `dist6/`.
 
+Before packaging, run the complete automated verification:
+
+```powershell
+npm.cmd run verify
+npm.cmd run release:win
+```
+
+## Thermal printer transports
+
+The agent can discover and configure these independent ESC/POS routes:
+
+- Windows RAW printer queue
+- TCP 9100, IPP, LPR, and Epson ePOS HTTP
+- USB or Bluetooth serial COM port
+- Authorized WebUSB bulk OUT and WebHID output reports
+- Authorized Bluetooth LE GATT characteristic
+
+Every enabled route receives the ticket independently. A failure on one route is recorded without cancelling the other enabled routes.
+
+Raw USB, HID, and Bluetooth GATT depend on the printer firmware, Windows ownership of the interface, and explicit user authorization. An automated adapter result does not replace a physical ticket check.
+
+## Hardware acceptance matrix
+
+Record the result for the release machine before publishing:
+
+| Transport | Automated | Physical ticket |
+| --- | --- | --- |
+| Windows RAW USB | Sender boundary covered | Outstanding |
+| TCP 9100 | Sender boundary covered | Outstanding |
+| USB COM | Sender boundary covered | Outstanding |
+| IPP | Sender boundary covered | Outstanding |
+| Epson ePOS HTTP | Sender boundary covered | Outstanding |
+| LPR | RFC 1179 dialogue covered | Outstanding |
+| WebUSB bulk OUT | Endpoint and bridge covered | Outstanding |
+| WebHID | Report chunking and bridge covered | Outstanding |
+| Bluetooth COM | Sender boundary covered | Outstanding |
+| Bluetooth LE GATT | Chunking, ordering, and bridge covered | Outstanding |
+
+For a multi-send acceptance test, enable two transports on one printer, send one test ticket, and confirm two independent result rows. Confirm each physical output separately in the app.
+
 ## Notes
 
 - Do not commit `settings.json`; it can contain local/private runtime data.

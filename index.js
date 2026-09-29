@@ -80,6 +80,7 @@ const {
 const { createSerialSender } = require("./lib/printers/transports/serial");
 const { createNetworkSender } = require("./lib/printers/transports/network");
 const { createIppSender } = require("./lib/printers/transports/ipp");
+const { createLprSender } = require("./lib/printers/transports/lpr");
 const {
   createEposHttpSender,
 } = require("./lib/printers/transports/eposHttp");
@@ -344,6 +345,7 @@ const printerTransportSenders = {
   windowsRaw: createWindowsRawSender({ runPowerShell }),
   network9100: createNetworkSender({ createSocket: () => new net.Socket() }),
   ipp: createIppSender({ createPrinter: (url) => ipp.Printer(url) }),
+  lpr: createLprSender({ createSocket: () => new net.Socket() }),
   eposHttp: createEposHttpSender({ fetch }),
   usbSerial: serialSender,
   bluetoothSerial: serialSender,

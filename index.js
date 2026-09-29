@@ -359,6 +359,18 @@ const printerTransportSenders = {
       );
     },
   },
+  usbHid: {
+    send({ transport, base64Data }) {
+      if (!deviceBridgeClient) {
+        return Promise.reject(new Error("Pont HID indisponible"));
+      }
+      return deviceBridgeClient.request(
+        "usbHid.send",
+        { config: transport.config, base64Data },
+        10000
+      );
+    },
+  },
 };
 
 // -------------------------------------------------------------

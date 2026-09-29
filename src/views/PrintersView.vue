@@ -106,7 +106,7 @@
                     {{ printer.testResults[row.id].success ? "Envoi accepte" : printer.testResults[row.id].error }}
                   </span>
                   <button
-                    v-if="row.id === 'usbRaw'"
+                    v-if="['usbRaw', 'usbHid'].includes(row.id)"
                     class="authorize-button"
                     type="button"
                     :disabled="printer.authorizationPending === row.id"
@@ -181,6 +181,7 @@ import {
   mergePrinterConfiguration,
 } from "../printers/transportPresentation.mjs";
 import { authorizeUsbDevice } from "../printers/webUsbTransport";
+import { authorizeHidDevice } from "../printers/webHidTransport";
 
 const { ipcRenderer } = window.require("electron");
 
@@ -245,16 +246,21 @@ function transportChanged(printer, transportId) {
 async function authorizeTransport(printer, transportId) {
   printer.authorizationPending = transportId;
   try {
-    if (transportId !== "usbRaw") throw new Error("Autorisation non prise en charge");
-    const config = await authorizeUsbDevice({
+    if (!["usbRaw", "usbHid"].includes(transportId)) {
+      throw new Error("Autorisation non prise en charge");
+    }
+    const identity = {
       ...printer.transports[transportId].config,
       vendorId: printer.vendorId || printer.transports[transportId].config.vendorId,
       productId: printer.productId || printer.transports[transportId].config.productId,
       serialNumber: printer.serialNumber || printer.transports[transportId].config.serialNumber,
-    });
+    };
+    const config = transportId === "usbRaw"
+      ? await authorizeUsbDevice(identity)
+      : await authorizeHidDevice(identity);
     printer.transports[transportId].config = { ...config, authorized: true };
     printer.transports[transportId].reason = null;
-    pageMessage.value = "Peripherique USB autorise.";
+    pageMessage.value = `Peripherique ${transportId === "usbRaw" ? "USB" : "HID"} autorise.`;
     savePrinterConfig();
   } catch (error) {
     printer.transports[transportId].config.authorized = false;

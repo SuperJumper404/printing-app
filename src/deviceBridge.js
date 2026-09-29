@@ -2,6 +2,10 @@ import {
   findAuthorizedUsbDevice,
   sendUsbEscPos,
 } from "./printers/webUsbTransport";
+import {
+  findAuthorizedHidDevice,
+  sendHidEscPos,
+} from "./printers/webHidTransport";
 
 const operations = new Map();
 let bridgeStarted = false;
@@ -48,4 +52,10 @@ registerDeviceOperation("usbRaw.send", async ({ config, base64Data }) => {
   const device = await findAuthorizedUsbDevice(config);
   const bytes = Uint8Array.from(atob(base64Data), (character) => character.charCodeAt(0));
   return sendUsbEscPos(device, config, bytes);
+});
+
+registerDeviceOperation("usbHid.send", async ({ config, base64Data }) => {
+  const device = await findAuthorizedHidDevice(config);
+  const bytes = Uint8Array.from(atob(base64Data), (character) => character.charCodeAt(0));
+  return sendHidEscPos(device, config, bytes);
 });

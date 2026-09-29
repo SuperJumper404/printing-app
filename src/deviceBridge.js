@@ -6,6 +6,10 @@ import {
   findAuthorizedHidDevice,
   sendHidEscPos,
 } from "./printers/webHidTransport";
+import {
+  findAuthorizedBluetoothDevice,
+  sendGattEscPos,
+} from "./printers/webBluetoothTransport";
 
 const operations = new Map();
 let bridgeStarted = false;
@@ -58,4 +62,10 @@ registerDeviceOperation("usbHid.send", async ({ config, base64Data }) => {
   const device = await findAuthorizedHidDevice(config);
   const bytes = Uint8Array.from(atob(base64Data), (character) => character.charCodeAt(0));
   return sendHidEscPos(device, config, bytes);
+});
+
+registerDeviceOperation("bluetoothGatt.send", async ({ config, base64Data }) => {
+  const device = await findAuthorizedBluetoothDevice(config);
+  const bytes = Uint8Array.from(atob(base64Data), (character) => character.charCodeAt(0));
+  return sendGattEscPos(device, config, bytes);
 });

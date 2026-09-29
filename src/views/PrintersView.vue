@@ -106,7 +106,7 @@
                     {{ printer.testResults[row.id].success ? "Envoi accepte" : printer.testResults[row.id].error }}
                   </span>
                   <button
-                    v-if="['usbRaw', 'usbHid'].includes(row.id)"
+                    v-if="['usbRaw', 'usbHid', 'bluetoothGatt'].includes(row.id)"
                     class="authorize-button"
                     type="button"
                     :disabled="printer.authorizationPending === row.id"
@@ -182,6 +182,7 @@ import {
 } from "../printers/transportPresentation.mjs";
 import { authorizeUsbDevice } from "../printers/webUsbTransport";
 import { authorizeHidDevice } from "../printers/webHidTransport";
+import { authorizeBluetoothDevice } from "../printers/webBluetoothTransport";
 
 const { ipcRenderer } = window.require("electron");
 
@@ -246,7 +247,7 @@ function transportChanged(printer, transportId) {
 async function authorizeTransport(printer, transportId) {
   printer.authorizationPending = transportId;
   try {
-    if (!["usbRaw", "usbHid"].includes(transportId)) {
+    if (!["usbRaw", "usbHid", "bluetoothGatt"].includes(transportId)) {
       throw new Error("Autorisation non prise en charge");
     }
     const identity = {
@@ -254,13 +255,20 @@ async function authorizeTransport(printer, transportId) {
       vendorId: printer.vendorId || printer.transports[transportId].config.vendorId,
       productId: printer.productId || printer.transports[transportId].config.productId,
       serialNumber: printer.serialNumber || printer.transports[transportId].config.serialNumber,
+      name: printer.transports[transportId].config.name || printer.name,
     };
-    const config = transportId === "usbRaw"
-      ? await authorizeUsbDevice(identity)
-      : await authorizeHidDevice(identity);
-    printer.transports[transportId].config = { ...config, authorized: true };
+    let config;
+    if (transportId === "usbRaw") config = await authorizeUsbDevice(identity);
+    else if (transportId === "usbHid") config = await authorizeHidDevice(identity);
+    else config = await authorizeBluetoothDevice(identity);
+    printer.transports[transportId].config = {
+      ...printer.transports[transportId].config,
+      ...config,
+      authorized: true,
+    };
     printer.transports[transportId].reason = null;
-    pageMessage.value = `Peripherique ${transportId === "usbRaw" ? "USB" : "HID"} autorise.`;
+    const transportLabel = { usbRaw: "USB", usbHid: "HID", bluetoothGatt: "Bluetooth" }[transportId];
+    pageMessage.value = `Peripherique ${transportLabel} autorise.`;
     savePrinterConfig();
   } catch (error) {
     printer.transports[transportId].config.authorized = false;

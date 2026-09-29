@@ -371,6 +371,18 @@ const printerTransportSenders = {
       );
     },
   },
+  bluetoothGatt: {
+    send({ transport, base64Data }) {
+      if (!deviceBridgeClient) {
+        return Promise.reject(new Error("Pont Bluetooth indisponible"));
+      }
+      return deviceBridgeClient.request(
+        "bluetoothGatt.send",
+        { config: transport.config, base64Data },
+        15000
+      );
+    },
+  },
 };
 
 // -------------------------------------------------------------

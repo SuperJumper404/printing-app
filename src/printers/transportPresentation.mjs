@@ -81,6 +81,7 @@ export const TRANSPORT_PRESENTATION = [
       { key: "deviceId", label: "Peripherique", type: "text" },
       { key: "serviceUuid", label: "UUID service", type: "text" },
       { key: "characteristicUuid", label: "UUID caracteristique", type: "text" },
+      { key: "maxChunkSize", label: "Taille fragment", type: "number", min: 1, max: 512 },
     ],
   },
 ];

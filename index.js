@@ -61,6 +61,7 @@ const ipp = require("ipp");
 const express = require("express");
 const os = require("os");
 const bodyParser = require("body-parser");
+const { buildUsbPrintersFromDevices } = require("./lib/printerDiscovery");
 
 const escpos = require("escpos");
 const Network = require("escpos-network");
@@ -598,26 +599,7 @@ async function discoverBluetoothPrinters({ useFilters = true } = {}) {
         }
       }
 
-    $pnpOnlyPrinters = $pnpUsbDevices |
-      Where-Object {
-        $_.Name -and
-        $_.PNPDeviceID -match 'USBPRINT' -and
-        -not ($printerQueues | Where-Object { $_.name -eq $_.Name -or $_.portName -match 'USB' })
-      } |
-      ForEach-Object {
-        $portMatch = [regex]::Match($_.PNPDeviceID, 'USB[0-9]{3}', 'IgnoreCase')
-        [pscustomobject]@{
-          source = 'pnp-usbprint'
-          name = $_.Name
-          printerName = $null
-          portName = if ($portMatch.Success) { $portMatch.Value.ToUpper() } else { $null }
-          driverName = $null
-          status = $_.Status
-          pnpDeviceId = $_.PNPDeviceID
-        }
-      }
-
-    @($serialPorts + $printerQueues + $pnpOnlyPrinters) | ConvertTo-Json -Depth 4
+    @($serialPorts + $printerQueues) | ConvertTo-Json -Depth 4
   `;
 
   const devices = await runPowerShellJson(script, {
@@ -740,54 +722,45 @@ async function discoverUsbPrinters({ useFilters = true } = {}) {
         }
       }
 
-    @($serialPorts + $printerQueues) | ConvertTo-Json -Depth 4
+    $pnpUsbDevices = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.Name -and
+        $_.PNPDeviceID -match 'USBPRINT' -and
+        (
+          $env:SMARTEAT_USE_FILTERS -eq 'false' -or
+          $_.Name -match 'print|printer|pos|receipt|thermal|ticket|epson|tm-|star|zebra|bixolon|citizen|xprinter|xp-' -or
+          $_.PNPDeviceID -match 'USBPRINT'
+        )
+      }
+
+    $pnpOnlyPrinters = $pnpUsbDevices |
+      Where-Object {
+        $pnpDevice = $_
+        -not ($printerQueues | Where-Object {
+          $_.name -eq $pnpDevice.Name -or
+          ($_.portName -and $_.portName -match 'USB|DOT4')
+        })
+      } |
+      ForEach-Object {
+        $portMatch = [regex]::Match($_.PNPDeviceID, 'USB[0-9]{3}', 'IgnoreCase')
+        [pscustomobject]@{
+          source = 'pnp-usbprint'
+          name = $_.Name
+          printerName = $null
+          portName = if ($portMatch.Success) { $portMatch.Value.ToUpper() } else { $null }
+          driverName = $null
+          status = $_.Status
+          pnpDeviceId = $_.PNPDeviceID
+        }
+      }
+
+    @($serialPorts + $printerQueues + $pnpOnlyPrinters) | ConvertTo-Json -Depth 4
   `;
 
   const devices = await runPowerShellJson(script, {
     SMARTEAT_USE_FILTERS: String(useFilters),
   });
-  const printers = new Map();
-
-  for (const device of devices) {
-    if (device.source === "serial" && device.portName) {
-      const id = `usb-serial-${device.portName}`;
-      printers.set(id, {
-        id,
-        name: device.name || `USB ${device.portName}`,
-        type: "usb",
-        connectionType: "usb",
-        portName: device.portName,
-        protocol: "serial",
-        description: device.description || null,
-        pnpDeviceId: device.pnpDeviceId || null,
-          availableProtocols: {
-            usbSerial: true,
-            usbWindowsSpooler: false,
-          },
-      });
-    }
-
-    if (device.source === "spooler" && device.printerName) {
-      const id = `usb-spooler-${device.printerName}`;
-      printers.set(id, {
-        id,
-        name: device.name || device.printerName,
-        type: "usb",
-        connectionType: "usb",
-        printerName: device.printerName,
-        portName: device.portName || null,
-        protocol: "windows-spooler",
-        driverName: device.driverName || null,
-        status: device.status || null,
-          availableProtocols: {
-            usbSerial: false,
-            usbWindowsSpooler: true,
-          },
-      });
-    }
-  }
-
-  return [...printers.values()];
+  return buildUsbPrintersFromDevices(devices);
 }
 
 async function discoverLocalPrinterQueues({ useFilters = true } = {}) {

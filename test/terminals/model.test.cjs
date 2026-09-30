@@ -20,6 +20,8 @@ function terminal(protocol, transport) {
     protocol,
     protocolVersion: protocol === "nepting" ? "0320" : "0300",
     transport,
+    cashRegisterId: "012345678901",
+    cashRegisterNumber: "01",
     tcp: { host: "192.168.1.50", port: 8888 },
     serial: {
       path: "COM8:",
@@ -31,7 +33,6 @@ function terminal(protocol, transport) {
     },
     nepting: {
       merchantId: "72503369065980",
-      cashRegisterId: "012345678901",
     },
   };
 }
@@ -46,6 +47,8 @@ test("accepts every supported protocol and transport combination", () => {
       assert.equal(result.ok, true, `${protocol}/${transport}`);
       assert.equal(result.value.protocol, protocol);
       assert.equal(result.value.transport, transport);
+      assert.equal(result.value.cashRegisterId, "012345678901");
+      assert.equal(result.value.cashRegisterNumber, "01");
     }
   }
 });

@@ -41,6 +41,7 @@ test("migrates a USB Windows spooler and keeps hardware identity", () => {
   assert.equal(printer.serialNumber, "ABC123");
   assert.deepEqual(printer.instanceIds, ["USBPRINT\\EPSON\\ABC123"]);
   assert.deepEqual(printer.ticketTypes, { caisse: true, cuisine: false });
+  assert.equal(printer.encoding, "windows-1252");
 });
 
 test("migrates USB and Bluetooth serial routes with serial settings", () => {
@@ -137,4 +138,14 @@ test("migration is idempotent for a versioned normalized record", () => {
   });
 
   assert.deepEqual(migratePrinterConfigurations([normalized]), [normalized]);
+});
+
+test("preserves a supported per-printer encoding and normalizes unknown values", () => {
+  const [gb18030, fallback] = migratePrinterConfigurations([
+    createPrinterDevice({ id: "chinese", encoding: "gb18030" }),
+    { printerConfigVersion: 2, id: "fallback", encoding: "unknown" },
+  ]);
+
+  assert.equal(gb18030.encoding, "gb18030");
+  assert.equal(fallback.encoding, "windows-1252");
 });

@@ -6,9 +6,10 @@ const {
   testPrinterTransports,
 } = require("../../lib/printers/dispatch");
 
-function printer(id, enabledTransports, ticketTypes = { caisse: true }) {
+function printer(id, enabledTransports, ticketTypes = { caisse: true }, encoding = "raw") {
   return {
     id,
+    encoding,
     ticketTypes,
     transports: Object.fromEntries(
       enabledTransports.map((transportId) => [
@@ -46,6 +47,29 @@ test("sends identical base64 to two enabled transports", async () => {
   assert.equal(result.success, true);
   assert.equal(result.transportCount, 2);
   assert.deepEqual(calls.map((call) => call.base64Data), ["AQID", "AQID"]);
+});
+
+test("prepares the same ticket with each printer encoding", async () => {
+  const calls = [];
+  const senders = {
+    windowsRaw: { send: async (input) => calls.push(input) },
+  };
+  const ticket = Buffer.from("3,00 \u20ac", "utf8").toString("base64");
+
+  await dispatchEscPosJob(
+    { ticketType: "caisse", dataFormatESCPOS: ticket },
+    [
+      printer("windows", ["windowsRaw"], { caisse: true }, "windows-1252"),
+      printer("raw", ["windowsRaw"], { caisse: true }, "raw"),
+    ],
+    senders,
+  );
+
+  assert.deepEqual(
+    Buffer.from(calls[0].base64Data, "base64"),
+    Buffer.from([0x1b, 0x74, 0x10, 0x33, 0x2c, 0x30, 0x30, 0x20, 0x80]),
+  );
+  assert.equal(calls[1].base64Data, ticket);
 });
 
 test("a rejected sender does not prevent another selected sender", async () => {

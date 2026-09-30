@@ -16,6 +16,14 @@ const networkFields = (defaultPort) => [
   { key: "port", label: "Port", type: "number", min: 1, max: 65535, defaultValue: defaultPort },
 ];
 
+export const PRINTER_ENCODING_OPTIONS = [
+  { value: "windows-1252", label: "Windows-1252" },
+  { value: "cp858", label: "CP858 (Europe / euro)" },
+  { value: "utf8", label: "UTF-8" },
+  { value: "gb18030", label: "GB18030" },
+  { value: "raw", label: "Brut (aucune conversion)" },
+];
+
 export const TRANSPORT_PRESENTATION = [
   {
     id: "windowsRaw",
@@ -131,6 +139,7 @@ export function mergePrinterConfiguration(discovered, saved) {
 
   return {
     ...discovered,
+    encoding: saved.encoding || discovered.encoding || "windows-1252",
     ticketTypes: {
       caisse: false,
       cuisine: false,

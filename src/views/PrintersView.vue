@@ -75,17 +75,28 @@
         </header>
 
         <div class="printer-settings">
-          <fieldset class="ticket-types">
-            <legend>Tickets recus</legend>
-            <label>
-              <input v-model="printer.ticketTypes.caisse" type="checkbox" @change="savePrinterConfig" />
-              Caisse
+          <div class="printer-preferences">
+            <fieldset class="ticket-types">
+              <legend>Tickets recus</legend>
+              <label>
+                <input v-model="printer.ticketTypes.caisse" type="checkbox" @change="savePrinterConfig" />
+                Caisse
+              </label>
+              <label>
+                <input v-model="printer.ticketTypes.cuisine" type="checkbox" @change="savePrinterConfig" />
+                Cuisine
+              </label>
+            </fieldset>
+
+            <label class="encoding-setting">
+              <span>Encodage</span>
+              <select v-model="printer.encoding" @change="savePrinterConfig">
+                <option v-for="option in PRINTER_ENCODING_OPTIONS" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
             </label>
-            <label>
-              <input v-model="printer.ticketTypes.cuisine" type="checkbox" @change="savePrinterConfig" />
-              Cuisine
-            </label>
-          </fieldset>
+          </div>
 
           <div class="transport-list">
             <h3>Transports detectes</h3>
@@ -175,6 +186,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import {
+  PRINTER_ENCODING_OPTIONS,
   TRANSPORT_PRESENTATION,
   createEmptyTransports,
   getTransportRows,
@@ -385,6 +397,7 @@ async function addManualPrinter() {
       addresses: [address.ip],
       instanceIds: [],
       ticketTypes: { caisse: false, cuisine: false },
+      encoding: "windows-1252",
       transports,
       observations: [],
       testResults: {},
@@ -443,6 +456,23 @@ onMounted(() => loadPrinters(false));
 .ticket-types {
   display: flex;
   align-items: center;
+}
+
+.printer-preferences {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+}
+
+.encoding-setting {
+  display: grid;
+  gap: 6px;
+}
+
+.encoding-setting span {
+  color: #273246;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .page-header,

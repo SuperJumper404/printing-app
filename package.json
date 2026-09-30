@@ -46,6 +46,7 @@
     "escpos": "^3.0.0-alpha.6",
     "escpos-network": "^3.0.0-alpha.5",
     "express": "^5.1.0",
+    "iconv-lite": "^0.7.3",
     "ipp": "^2.0.1",
     "node-fetch": "^2.7.0",
     "node-gyp": "^11.5.0",

@@ -71,9 +71,6 @@ const {
   migratePrinterConfigurations,
 } = require("./lib/printers/configMigration");
 const {
-  applyUsbCodePage,
-} = require("./lib/printers/escposCompatibility");
-const {
   deviceMetadata,
   findUniqueMatchingDevice,
   identityMatchesDevice,
@@ -397,7 +394,7 @@ const printerTransportSenders = {
         "usbRaw.send",
         {
           config: transport.config,
-          base64Data: applyUsbCodePage(base64Data, transport.config?.codePage),
+          base64Data,
         },
         10000
       );

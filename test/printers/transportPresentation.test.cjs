@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("defines labels and editable fields for all ten transports", async () => {
-  const { TRANSPORT_PRESENTATION } = await import(
+  const { PRINTER_ENCODING_OPTIONS, TRANSPORT_PRESENTATION } = await import(
     "../../src/printers/transportPresentation.mjs"
   );
 
@@ -25,6 +25,10 @@ test("defines labels and editable fields for all ten transports", async () => {
     assert.ok(transport.label);
     assert.ok(transport.fields.length > 0, `${transport.id} must expose config fields`);
   }
+  assert.deepEqual(
+    PRINTER_ENCODING_OPTIONS.map((item) => item.value),
+    ["windows-1252", "cp858", "utf8", "gb18030", "raw"],
+  );
 });
 
 test("marks unavailable transports disabled and exposes their reason", async () => {
@@ -61,6 +65,7 @@ test("preserves multiple enabled transports while merging saved configuration", 
   };
   const saved = {
     id: "printer-one",
+    encoding: "cp858",
     ticketTypes: { caisse: true, cuisine: false },
     transports: {
       windowsRaw: { available: true, enabled: true, verified: true, config: {} },
@@ -75,6 +80,7 @@ test("preserves multiple enabled transports while merging saved configuration", 
   assert.equal(merged.transports.usbSerial.config.portName, "COM4");
   assert.equal(merged.transports.usbSerial.config.baudRate, 19200);
   assert.equal(merged.ticketTypes.caisse, true);
+  assert.equal(merged.encoding, "cp858");
 });
 
 test("keeps enabled saved printers that are not detected yet", async () => {

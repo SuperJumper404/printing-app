@@ -70,3 +70,25 @@ test("does not transcode binary raster payloads", () => {
     ]),
   );
 });
+
+test("supports CP858, UTF-8, GB18030, and raw printer profiles", () => {
+  const utf8Euro = Buffer.from("\u20ac", "utf8").toString("base64");
+  const chinese = Buffer.from("\u4e2d", "utf8").toString("base64");
+
+  assert.deepEqual(
+    Buffer.from(prepareEscPosPayload(utf8Euro, "cp858"), "base64"),
+    Buffer.from([0x1b, 0x74, 0x13, 0xd5]),
+  );
+  assert.deepEqual(
+    Buffer.from(prepareEscPosPayload(utf8Euro, "utf8"), "base64"),
+    Buffer.from(utf8Euro, "base64"),
+  );
+  assert.deepEqual(
+    Buffer.from(prepareEscPosPayload(chinese, "gb18030"), "base64"),
+    Buffer.from([0xd6, 0xd0]),
+  );
+  assert.deepEqual(
+    Buffer.from(prepareEscPosPayload(utf8Euro, "raw"), "base64"),
+    Buffer.from(utf8Euro, "base64"),
+  );
+});

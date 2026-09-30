@@ -20,6 +20,12 @@
         >
         <a
           href="#"
+          @click="view = 'terminals'"
+          :class="{ active: view === 'terminals' }"
+          >Mes TPE</a
+        >
+        <a
+          href="#"
           @click="view = 'account'"
           :class="{ active: view === 'account' }"
           >Mon compte</a
@@ -32,6 +38,7 @@
       <HomeView v-if="view === 'home'" />
       <PrintingView v-if="view === 'printing'" />
       <PrintersView v-if="view === 'printers'" />
+      <TerminalsView v-if="view === 'terminals'" />
       <AccountView v-if="view === 'account'" />
     </main>
   </div>
@@ -42,6 +49,7 @@ import { onMounted, ref } from "vue";
 import HomeView from "@/views/HomeView.vue";
 import PrintingView from "@/views/PrintingView.vue";
 import PrintersView from "@/views/PrintersView.vue";
+import TerminalsView from "@/views/TerminalsView.vue";
 import AccountView from "@/views/AccountView.vue";
 import "./style.css";
 const view = ref("home");

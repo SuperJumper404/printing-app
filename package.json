@@ -57,6 +57,7 @@
   "build": {
     "appId": "com.smarteat.printeragent",
     "productName": "SmartEat Printer Agent",
+    "npmRebuild": false,
     "files": [
       "index.js",
       "lib/**/*",

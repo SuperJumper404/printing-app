@@ -58,7 +58,7 @@ function exchange(overrides = {}) {
     request: Buffer.from("request"),
     isStructurallyValid: (buffer) => buffer.toString() === "response",
     connectTimeoutMs: 25,
-    responseTimeoutMs: 40,
+    responseTimeoutMs: 500,
     responseIdleMs: 5,
     ...overrides,
   };

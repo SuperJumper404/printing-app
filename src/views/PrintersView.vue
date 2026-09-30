@@ -178,7 +178,7 @@ import {
   TRANSPORT_PRESENTATION,
   createEmptyTransports,
   getTransportRows,
-  mergePrinterConfiguration,
+  mergeDiscoveredAndSavedPrinters,
 } from "../printers/transportPresentation.mjs";
 import { authorizeUsbDevice } from "../printers/webUsbTransport";
 import { authorizeHidDevice } from "../printers/webHidTransport";
@@ -280,21 +280,6 @@ async function authorizeTransport(printer, transportId) {
   }
 }
 
-function findSavedConfig(saved, printer) {
-  const exact = saved.find((item) => item.id === printer.id);
-  if (exact) return exact;
-  return saved.find((item) => {
-    if (printer.containerId && item.containerId === printer.containerId) return true;
-    if (
-      printer.serialNumber &&
-      item.serialNumber === printer.serialNumber &&
-      item.vendorId === printer.vendorId &&
-      item.productId === printer.productId
-    ) return true;
-    return (printer.addresses || []).some((address) => item.addresses?.includes(address));
-  });
-}
-
 async function loadPrinters(forceDiscovery = false) {
   if (!forceDiscovery && printerCache.printers) {
     printers.value = clone(printerCache.printers);
@@ -318,8 +303,8 @@ async function loadPrinters(forceDiscovery = false) {
         modes: clone(discoveryModes.value),
       }),
     ]);
-    printers.value = discovered.map((printer) => ({
-      ...mergePrinterConfiguration(printer, findSavedConfig(saved, printer)),
+    printers.value = mergeDiscoveredAndSavedPrinters(discovered, saved).map((printer) => ({
+      ...printer,
       testing: false,
       testResults: {},
     }));

@@ -139,3 +139,26 @@ export function mergePrinterConfiguration(discovered, saved) {
     transports,
   };
 }
+
+function printersMatch(left, right) {
+  if (left.id === right.id) return true;
+  if (left.containerId && left.containerId === right.containerId) return true;
+  if (
+    left.serialNumber &&
+    left.serialNumber === right.serialNumber &&
+    left.vendorId === right.vendorId &&
+    left.productId === right.productId
+  ) return true;
+  return (left.addresses || []).some((address) => right.addresses?.includes(address));
+}
+
+export function mergeDiscoveredAndSavedPrinters(discovered = [], saved = []) {
+  const remainingSaved = [...saved];
+  const merged = discovered.map((printer) => {
+    const savedIndex = remainingSaved.findIndex((item) => printersMatch(printer, item));
+    if (savedIndex < 0) return printer;
+    const [savedPrinter] = remainingSaved.splice(savedIndex, 1);
+    return mergePrinterConfiguration(printer, savedPrinter);
+  });
+  return [...merged, ...remainingSaved];
+}

@@ -76,3 +76,44 @@ test("preserves multiple enabled transports while merging saved configuration", 
   assert.equal(merged.transports.usbSerial.config.baudRate, 19200);
   assert.equal(merged.ticketTypes.caisse, true);
 });
+
+test("keeps enabled saved printers that are not detected yet", async () => {
+  const { mergeDiscoveredAndSavedPrinters } = await import(
+    "../../src/printers/transportPresentation.mjs"
+  );
+  const discovered = [{
+    id: "counter",
+    name: "Counter detected",
+    transports: {
+      windowsRaw: { available: true, enabled: false, verified: false, config: {} },
+    },
+  }];
+  const saved = [
+    {
+      id: "counter",
+      name: "Counter saved",
+      transports: {
+        windowsRaw: { available: true, enabled: true, verified: true, config: {} },
+      },
+    },
+    {
+      id: "kitchen",
+      name: "Kitchen",
+      transports: {
+        network9100: {
+          available: true,
+          enabled: true,
+          verified: true,
+          config: { host: "192.168.1.40", port: 9100 },
+        },
+      },
+    },
+  ];
+
+  const merged = mergeDiscoveredAndSavedPrinters(discovered, saved);
+
+  assert.deepEqual(merged.map((item) => item.id), ["counter", "kitchen"]);
+  assert.equal(merged[0].name, "Counter detected");
+  assert.equal(merged[0].transports.windowsRaw.enabled, true);
+  assert.equal(merged[1].transports.network9100.enabled, true);
+});

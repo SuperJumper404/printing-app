@@ -84,6 +84,11 @@ const {
   testPrinterTransports,
 } = require("./lib/printers/dispatch");
 const {
+  configureAutoLaunch,
+  runStartupPrinterTests,
+  scheduleStartupPrinterTests,
+} = require("./lib/printers/startup");
+const {
   createWindowsRawSender,
 } = require("./lib/printers/transports/windowsRaw");
 const { createSerialSender } = require("./lib/printers/transports/serial");
@@ -138,6 +143,7 @@ let tray = null;
 let isQuitting = false;
 let updateEventsRegistered = false;
 const shouldStartHidden = process.argv.includes("--hidden");
+let startupPrinterTestScheduled = false;
 
 function getAppIconPath() {
   const windowsIconCandidates = [
@@ -451,6 +457,24 @@ function createWindow() {
     ipc: ipcMain,
   });
 
+  if (!startupPrinterTestScheduled) {
+    startupPrinterTestScheduled = true;
+    scheduleStartupPrinterTests(
+      mainWindow.webContents,
+      async () => {
+        const printers = migratePrinterConfigurations(store.get("printers", []));
+        const results = await runStartupPrinterTests({
+          printers,
+          buildTestPayload,
+          testPrinterTransports,
+          senders: printerTransportSenders,
+        });
+        console.log("Impressions de demarrage terminees:", results);
+      },
+      (error) => console.error("Erreur impressions de demarrage:", error),
+    );
+  }
+
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
   } else {
@@ -629,16 +653,6 @@ function checkForUpdates({ manual = false } = {}) {
   });
 }
 
-function configureAutoLaunch() {
-  if (process.platform !== "win32") return;
-
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    path: app.getPath("exe"),
-    args: ["--hidden"],
-  });
-}
-
 app.setAppUserModelId("com.smarteat.printeragent");
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -653,7 +667,7 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(() => {
     console.log("📦 Contenu complet du Store au démarrage:");
     console.log(JSON.stringify(redactTerminalValue(store.store), null, 2));
-    configureAutoLaunch();
+    configureAutoLaunch(app);
     createWindow();
     createTray();
     checkForUpdates();

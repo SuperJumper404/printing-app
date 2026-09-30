@@ -110,6 +110,7 @@ const {
 } = require("./lib/terminals/transports/serial");
 const { createTerminalService } = require("./lib/terminals/service");
 const { registerTerminalIpc } = require("./lib/terminals/ipc");
+const { registerTerminalRoutes } = require("./lib/terminals/http");
 
 const terminalService = createTerminalService({
   store,
@@ -1780,6 +1781,12 @@ appServer.use(bodyParser.json());
 appServer.use(bodyParser.urlencoded({ extended: true }));
 const cors = require("cors");
 appServer.use(cors({ origin: "*" }));
+
+registerTerminalRoutes({
+  app: appServer,
+  service: terminalService,
+  getSessionToken: () => store.get("userSession.token"),
+});
 
 // Fonction utilitaire pour récupérer l’IP locale
 function getLocalIP() {

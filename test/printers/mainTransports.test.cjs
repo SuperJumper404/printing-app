@@ -8,17 +8,21 @@ const { createNetworkSender } = require("../../lib/printers/transports/network")
 const { createIppSender } = require("../../lib/printers/transports/ipp");
 const { createEposHttpSender } = require("../../lib/printers/transports/eposHttp");
 
-test("Windows RAW passes the original base64 through PowerShell environment", async () => {
+test("Windows RAW selects its code page and converts UTF-8 receipt text", async () => {
   let invocation;
   const sender = createWindowsRawSender({
     runPowerShell: async (script, env) => { invocation = { script, env }; },
   });
+  const base64Data = Buffer.from("3,00 \u20ac\n", "utf8").toString("base64");
   await sender.send({
     transport: { config: { printerName: "Receipt Queue" } },
-    base64Data: "AQID",
+    base64Data,
   });
 
-  assert.equal(invocation.env.SMARTEAT_PRINT_BASE64, "AQID");
+  assert.deepEqual(
+    Buffer.from(invocation.env.SMARTEAT_PRINT_BASE64, "base64"),
+    Buffer.from([0x1b, 0x74, 0x10, 0x33, 0x2c, 0x30, 0x30, 0x20, 0x80, 0x0a]),
+  );
   assert.equal(invocation.env.SMARTEAT_PRINTER_NAME, "Receipt Queue");
   assert.match(invocation.script, /WritePrinter/);
 });

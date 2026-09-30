@@ -96,6 +96,34 @@ const {
 const {
   createDeviceBridgeClient,
 } = require("./lib/printers/deviceBridgeClient");
+const {
+  createCaisseApProtocol,
+} = require("./lib/terminals/protocols/caisseAp");
+const {
+  createNeptingProtocol,
+} = require("./lib/terminals/protocols/nepting");
+const {
+  createTcpTransport,
+} = require("./lib/terminals/transports/tcp");
+const {
+  createSerialTransport: createTerminalSerialTransport,
+} = require("./lib/terminals/transports/serial");
+const { createTerminalService } = require("./lib/terminals/service");
+const { registerTerminalIpc } = require("./lib/terminals/ipc");
+
+const terminalService = createTerminalService({
+  store,
+  protocols: {
+    "caisse-ap": createCaisseApProtocol(),
+    nepting: createNeptingProtocol(),
+  },
+  transports: {
+    tcp: createTcpTransport(),
+    serial: createTerminalSerialTransport(),
+  },
+});
+
+registerTerminalIpc({ ipc: ipcMain, service: terminalService });
 
 const escpos = require("escpos");
 const Network = require("escpos-network");

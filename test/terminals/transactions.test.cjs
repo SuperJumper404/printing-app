@@ -105,3 +105,22 @@ test("reports whether a terminal owns an active transaction", () => {
   registry.update("tx-1", "failed");
   assert.equal(registry.hasActiveForTerminal("counter-1"), false);
 });
+
+test("reconciles restored in-flight transactions as unknown after restart", () => {
+  const persisted = [];
+  const registry = createTransactionRegistry({
+    initial: [record("tx-1", "authorizing")],
+    now: () => NOW,
+    onChange: (records) => persisted.push(records),
+  });
+
+  assert.deepEqual(registry.get("tx-1"), {
+    ...record("tx-1", "unknown"),
+    updatedAt: new Date(NOW).toISOString(),
+    message: "Session interrompue, consultez le journal du TPE",
+    rawCode: "restart_recovery",
+    canCancel: false,
+  });
+  assert.equal(registry.hasActiveForTerminal("counter-1"), false);
+  assert.deepEqual(persisted, [registry.list()]);
+});

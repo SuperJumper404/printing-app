@@ -78,6 +78,28 @@ test("returns stable serializable service errors without exposing stacks", async
   assert.equal(JSON.stringify(result).includes("stack"), false);
 });
 
+test("does not expose unknown adapter errors", async () => {
+  const ipc = createIpc();
+  const service = Object.fromEntries(
+    cases.map(([, method]) => [method, () => {
+      if (method === "testConnection") {
+        const error = new Error("raw receipt and merchant secret");
+        error.code = "merchant_secret_72503369065980";
+        throw error;
+      }
+      return null;
+    }]),
+  );
+
+  registerTerminalIpc({ ipc, service });
+  const result = await ipc.handlers.get("terminals:test-connection")({}, "q25");
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: { code: "internal_error", message: "Erreur interne du module TPE" },
+  });
+});
+
 test("dispose removes every registered handler", () => {
   const ipc = createIpc();
   const service = Object.fromEntries(cases.map(([, method]) => [method, () => null]));

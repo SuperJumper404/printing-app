@@ -159,6 +159,45 @@ test("performs a protocol-level connection probe", async () => {
   assert.equal(adapters.calls[0].transportId, "serial");
 });
 
+test("locks a terminal while a connection probe is active", async () => {
+  let resolveProbe;
+  let probeCount = 0;
+  const adapters = createAdapters({
+    transports: {
+      serial: {
+        list: async () => [{ path: "COM8" }],
+        probe: async () => {
+          probeCount += 1;
+          if (probeCount > 1) {
+            return { response: Buffer.from("probe"), requestWritten: true };
+          }
+          return new Promise((resolve) => { resolveProbe = resolve; });
+        },
+        exchange: async () => ({ response: Buffer.from("ok"), requestWritten: true }),
+      },
+    },
+  });
+  const service = createTerminalService({
+    store: createStore({ terminals: [terminal("terminal-1", "nepting", "serial")] }),
+    ...adapters,
+  });
+
+  const activeProbe = service.testConnection("terminal-1");
+  await assert.rejects(
+    service.testConnection("terminal-1"),
+    (error) => error.code === "terminal_busy",
+  );
+  await assert.rejects(
+    service.startPayment(payment("tx-during-probe")),
+    (error) => error.code === "terminal_busy",
+  );
+
+  resolveProbe({ response: Buffer.from("probe"), requestWritten: true });
+  await activeProbe;
+  await service.startPayment(payment("tx-after-probe"));
+  await waitForState(service, "tx-after-probe", "approved");
+});
+
 test("locks an active terminal and preserves identical idempotent requests", async () => {
   let resolvePayment;
   const pending = new Promise((resolve) => { resolvePayment = resolve; });
@@ -285,9 +324,18 @@ test("does not expose or persist sensitive adapter data", async () => {
 
   await service.startPayment(payment("tx-sensitive"));
   const result = await waitForState(service, "tx-sensitive", "approved");
+  adapters.transports.tcp.exchange = async () => {
+    const error = new Error(`${secrets.rawFrame} ${secrets.receipt}`);
+    error.code = secrets.token;
+    error.requestWritten = false;
+    throw error;
+  };
+  await service.startPayment(payment("tx-sensitive-error"));
+  const errorResult = await waitForState(service, "tx-sensitive-error", "failed");
   const serialized = JSON.stringify({
     persisted: store.value("terminalTransactions"),
     result,
+    errorResult,
     logs: redactTerminalValue(secrets),
   });
 

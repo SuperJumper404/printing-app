@@ -73,6 +73,34 @@ test("lists terminals and runs a protocol-level connection test", async () => {
   });
 });
 
+test("lists only non-sensitive terminal metadata over HTTP", async () => {
+  await withServer(fakeService({
+    listTerminals: () => [{
+      id: "q25",
+      name: "TPE comptoir",
+      manufacturer: "PAX",
+      model: "Q25",
+      enabled: true,
+      protocol: "nepting",
+      transport: "tcp",
+      cashRegisterId: "000000000001",
+      tcp: { host: "192.168.1.40", port: 8888 },
+      nepting: { merchantId: "72503369065980" },
+    }],
+  }), async (base) => {
+    const response = await request(base, "/terminals");
+    assert.deepEqual(await response.json(), [{
+      id: "q25",
+      name: "TPE comptoir",
+      manufacturer: "PAX",
+      model: "Q25",
+      enabled: true,
+      protocol: "nepting",
+      transport: "tcp",
+    }]);
+  });
+});
+
 test("maps missing terminals and malformed payments to 404 and 400", async () => {
   await withServer(fakeService({
     testConnection: async () => { throw serviceError("terminal_not_found"); },
@@ -84,6 +112,20 @@ test("maps missing terminals and malformed payments to 404 and 400", async () =>
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ amount: 0 }),
     })).status, 400);
+  });
+});
+
+test("does not expose unknown adapter error codes", async () => {
+  await withServer(fakeService({
+    testConnection: async () => {
+      throw serviceError("merchant_secret_72503369065980");
+    },
+  }), async (base) => {
+    const response = await request(base, "/terminals/q25/test", { method: "POST" });
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: { code: "internal_error", message: "Erreur interne du module TPE" },
+    });
   });
 });
 

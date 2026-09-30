@@ -111,6 +111,7 @@ const {
 const { createTerminalService } = require("./lib/terminals/service");
 const { registerTerminalIpc } = require("./lib/terminals/ipc");
 const { registerTerminalRoutes } = require("./lib/terminals/http");
+const { redactTerminalValue } = require("./lib/terminals/model");
 
 const terminalService = createTerminalService({
   store,
@@ -651,7 +652,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     console.log("📦 Contenu complet du Store au démarrage:");
-    console.log(JSON.stringify(store.store, null, 2));
+    console.log(JSON.stringify(redactTerminalValue(store.store), null, 2));
     configureAutoLaunch();
     createWindow();
     createTray();

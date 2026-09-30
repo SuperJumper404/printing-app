@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { createTerminalService } = require("../../lib/terminals/service");
+const { redactTerminalValue } = require("../../lib/terminals/model");
 
 function createStore(seed = {}) {
   const data = new Map(Object.entries(seed));
@@ -258,4 +259,39 @@ test("reports unsupported cancellation without changing payment state", async ()
   assert.notEqual(service.getPayment("tx-1").state, "cancelled");
   resolvePayment({ response: Buffer.from("ok"), requestWritten: true });
   await waitForState(service, "tx-1", "approved");
+});
+
+test("does not expose or persist sensitive adapter data", async () => {
+  const secrets = {
+    pan: "4111111111111111",
+    token: "tok_secret_abcdef",
+    merchantId: "72503369065980",
+    rawFrame: "CZ0040320CB0041590",
+    receipt: "CARD RECEIPT SECRET",
+  };
+  const store = createStore({ terminals: [terminal("terminal-1", "nepting")] });
+  const adapters = createAdapters();
+  adapters.protocols.nepting.parseResponse = () => ({
+    state: "approved",
+    message: Object.values(secrets).join(" "),
+    authorizationReference: secrets.pan,
+    merchantReference: secrets.merchantId,
+    rawCode: "10",
+    token: secrets.token,
+    rawFrame: secrets.rawFrame,
+    receipt: secrets.receipt,
+  });
+  const service = createTerminalService({ store, ...adapters });
+
+  await service.startPayment(payment("tx-sensitive"));
+  const result = await waitForState(service, "tx-sensitive", "approved");
+  const serialized = JSON.stringify({
+    persisted: store.value("terminalTransactions"),
+    result,
+    logs: redactTerminalValue(secrets),
+  });
+
+  for (const secret of Object.values(secrets)) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
 });

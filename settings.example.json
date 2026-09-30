@@ -35,5 +35,35 @@
       }
     }
   ],
+  "terminals": [
+    {
+      "id": "pax-q25-example",
+      "name": "PAX Q25 exemple",
+      "manufacturer": "PAX",
+      "model": "Q25",
+      "enabled": false,
+      "protocol": "nepting",
+      "protocolVersion": "0320",
+      "transport": "tcp",
+      "cashRegisterId": "000000000001",
+      "cashRegisterNumber": "01",
+      "tcp": {
+        "host": "192.168.1.40",
+        "port": 8888
+      },
+      "serial": {
+        "path": "COM4",
+        "baudRate": 115200,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1,
+        "flowControl": "none"
+      },
+      "nepting": {
+        "merchantId": ""
+      }
+    }
+  ],
+  "terminalTransactions": [],
   "printHistory": []
 }

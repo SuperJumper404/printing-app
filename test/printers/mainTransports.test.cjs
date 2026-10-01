@@ -114,3 +114,23 @@ test("ePOS wraps hexadecimal payload bytes in a command element", async () => {
   assert.match(request.options.body, /<command>010203<\/command>/);
   assert.equal(request.options.headers["Content-Type"], "text/xml");
 });
+
+test("ePOS sends structured XML body directly", async () => {
+  let request;
+  const sender = createEposHttpSender({
+    fetch: async (url, options) => {
+      request = { url, options };
+      return { ok: true, status: 200 };
+    },
+  });
+  const xmlData = "<epos-print>structured</epos-print>";
+
+  await sender.send({
+    transport: { config: { host: "printer", port: 80 } },
+    xmlData,
+  });
+
+  assert.equal(request.options.body, xmlData);
+  assert.doesNotMatch(request.options.body, /<command>/);
+  assert.equal(request.options.headers["Content-Type"], "text/xml");
+});

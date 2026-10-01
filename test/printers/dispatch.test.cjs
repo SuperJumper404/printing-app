@@ -6,10 +6,17 @@ const {
   testPrinterTransports,
 } = require("../../lib/printers/dispatch");
 
-function printer(id, enabledTransports, ticketTypes = { caisse: true }, encoding = "raw") {
+function printer(
+  id,
+  enabledTransports,
+  ticketTypes = { caisse: true },
+  encoding = "raw",
+  ticketSource = "received",
+) {
   return {
     id,
     encoding,
+    ticketSource,
     escPosCodePage: encoding === "windows-1252" ? 16 : null,
     ticketTypes,
     transports: Object.fromEntries(
@@ -18,6 +25,50 @@ function printer(id, enabledTransports, ticketTypes = { caisse: true }, encoding
         { available: true, enabled: true, config: {} },
       ]),
     ),
+  };
+}
+
+function jobWithTicketData() {
+  return {
+    ticketType: "caisse",
+    dataFormatESCPOS: Buffer.from("RECEIVED TICKET\n", "utf8").toString("base64"),
+    ticketData: {
+      schemaVersion: 1,
+      kind: "cashier_receipt",
+      business: {
+        shop: {
+          name: "Structured Shop",
+          phone: "0102030405",
+          address: "1 rue du Test",
+          siret: "123",
+          naf: "5610A",
+          vatNumber: "FR00123",
+        },
+      },
+      render: {
+        paperWidth: 32,
+        sections: [
+          {
+            id: "main",
+            lines: [
+              { type: "text", text: "Structured Shop", align: "center", bold: true },
+              { type: "separator" },
+              {
+                type: "columns",
+                columns: [
+                  { key: "qty", text: "1x", width: 4 },
+                  { key: "name", text: "Burger", width: 20 },
+                  { key: "total", text: "12,00 EUR", width: 8, align: "right" },
+                ],
+                fallbackText: "1x   Burger              12,00 EUR",
+              },
+              { type: "text", text: "TOTAL : 12,00 EUR", align: "right", bold: true },
+              { type: "cut" },
+            ],
+          },
+        ],
+      },
+    },
   };
 }
 
@@ -132,4 +183,54 @@ test("tests every enabled transport without requiring a ticket type", async () =
 
   assert.equal(result.transportCount, 2);
   assert.equal(result.success, true);
+});
+
+test("received source keeps using provided ESC POS", async () => {
+  const calls = [];
+  const job = jobWithTicketData();
+
+  await dispatchEscPosJob(
+    job,
+    [printer("received", ["windowsRaw"], { caisse: true }, "raw", "received")],
+    { windowsRaw: { send: async (input) => calls.push(input) } },
+  );
+
+  assert.equal(calls[0].base64Data, job.dataFormatESCPOS);
+});
+
+test("ticketData source reconstructs payload per printer", async () => {
+  const calls = [];
+  const job = jobWithTicketData();
+
+  await dispatchEscPosJob(
+    job,
+    [printer("structured", ["windowsRaw"], { caisse: true }, "raw", "ticketData")],
+    { windowsRaw: { send: async (input) => calls.push(input) } },
+  );
+
+  assert.notEqual(calls[0].base64Data, job.dataFormatESCPOS);
+  assert.ok(calls[0].base64Data);
+});
+
+test("ticketData ePOS sends xmlData", async () => {
+  const calls = [];
+
+  await dispatchEscPosJob(
+    jobWithTicketData(),
+    [printer("epos", ["eposHttp"], { caisse: true }, "raw", "ticketData")],
+    { eposHttp: { send: async (input) => calls.push(input) } },
+  );
+
+  assert.match(calls[0].xmlData, /<epos-print/);
+});
+
+test("ticketData source rejects missing structured data", async () => {
+  const result = await dispatchEscPosJob(
+    { ticketType: "caisse", dataFormatESCPOS: "AQID" },
+    [printer("bad", ["windowsRaw"], { caisse: true }, "raw", "ticketData")],
+    { windowsRaw: { send: async () => { throw new Error("must not print"); } } },
+  );
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /ticketData/i);
 });

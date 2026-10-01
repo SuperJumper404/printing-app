@@ -7,6 +7,7 @@ const {
   renderTicketDataText,
   validateTicketData,
 } = require("../../lib/printers/ticketDataRenderer");
+const { getTicketPrintableText } = require("../../lib/printers/printHistoryText");
 
 function sampleCashierTicketData(overrides = {}) {
   const shop = overrides.shop || {
@@ -95,4 +96,14 @@ test("rejects missing render sections", () => {
     validateTicketData({ schemaVersion: 1, kind: "cashier_receipt" }).valid,
     false
   );
+});
+
+test("history text prefers ticketData over ESC POS text", () => {
+  const text = getTicketPrintableText({
+    dataFormatESCPOS: Buffer.from("Legacy Shop\n", "utf8").toString("base64"),
+    ticketData: sampleCashierTicketData({ shop: { name: "Structured Shop" } }),
+  });
+
+  assert.match(text, /Structured Shop/);
+  assert.doesNotMatch(text, /Legacy Shop/);
 });

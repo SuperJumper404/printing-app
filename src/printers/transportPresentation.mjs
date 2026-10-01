@@ -149,6 +149,7 @@ export function mergePrinterConfiguration(discovered, saved) {
       cuisine: false,
       ...(saved.ticketTypes || discovered.ticketTypes || {}),
     },
+    ticketSource: saved.ticketSource || discovered.ticketSource || "received",
     transports,
   };
 }

@@ -66,6 +66,7 @@ test("preserves multiple enabled transports while merging saved configuration", 
   const saved = {
     id: "printer-one",
     encoding: "cp858",
+    ticketSource: "ticketData",
     ticketTypes: { caisse: true, cuisine: false },
     transports: {
       windowsRaw: { available: true, enabled: true, verified: true, config: {} },
@@ -81,6 +82,7 @@ test("preserves multiple enabled transports while merging saved configuration", 
   assert.equal(merged.transports.usbSerial.config.baudRate, 19200);
   assert.equal(merged.ticketTypes.caisse, true);
   assert.equal(merged.encoding, "cp858");
+  assert.equal(merged.ticketSource, "ticketData");
 });
 
 test("keeps enabled saved printers that are not detected yet", async () => {

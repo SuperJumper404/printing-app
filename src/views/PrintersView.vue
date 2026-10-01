@@ -88,6 +88,18 @@
               </label>
             </fieldset>
 
+            <fieldset class="ticket-source">
+              <legend>Source du ticket</legend>
+              <label>
+                <input v-model="printer.ticketSource" type="radio" value="received" @change="savePrinterConfig" />
+                Ticket recu
+              </label>
+              <label>
+                <input v-model="printer.ticketSource" type="radio" value="ticketData" @change="savePrinterConfig" />
+                Donnees ticket
+              </label>
+            </fieldset>
+
             <div class="encoding-setting">
               <label :for="`encoding-${printer.id}`">Encodage</label>
               <select
@@ -435,6 +447,7 @@ async function addManualPrinter() {
       addresses: [address.ip],
       instanceIds: [],
       ticketTypes: { caisse: false, cuisine: false },
+      ticketSource: "received",
       encoding: "auto",
       escPosCodePage: null,
       charsPerLine: 48,
@@ -493,7 +506,8 @@ onMounted(() => loadPrinters(false));
 .toolbar-row,
 .mode-controls,
 .manual-printer-form,
-.ticket-types {
+.ticket-types,
+.ticket-source {
   display: flex;
   align-items: center;
 }
@@ -559,7 +573,8 @@ h1 {
 
 .toolbar-row,
 .mode-controls,
-.ticket-types {
+.ticket-types,
+.ticket-source {
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -609,7 +624,8 @@ summary:focus-visible {
 
 .filter-toggle,
 .mode-controls label,
-.ticket-types label {
+.ticket-types label,
+.ticket-source label {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -765,7 +781,8 @@ select:disabled {
   gap: 24px;
 }
 
-.ticket-types {
+.ticket-types,
+.ticket-source {
   align-content: flex-start;
   align-items: flex-start;
   flex-direction: column;
@@ -775,6 +792,7 @@ select:disabled {
 }
 
 .ticket-types legend,
+.ticket-source legend,
 .transport-list h3 {
   margin-bottom: 10px;
   color: #273246;

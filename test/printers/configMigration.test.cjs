@@ -151,3 +151,13 @@ test("preserves supported printer settings and normalizes unknown values", () =>
   assert.equal(gb18030.encoding, "gb18030");
   assert.equal(fallback.encoding, "auto");
 });
+
+test("defaults printer source to received and preserves ticketData", () => {
+  const [legacy, saved] = migratePrinterConfigurations([
+    { id: "legacy" },
+    { printerConfigVersion: 2, id: "saved", ticketSource: "ticketData" },
+  ]);
+
+  assert.equal(legacy.ticketSource, "received");
+  assert.equal(saved.ticketSource, "ticketData");
+});

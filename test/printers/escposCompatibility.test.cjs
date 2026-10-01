@@ -76,7 +76,10 @@ test("supports CP858, UTF-8, GB18030, and raw printer profiles", () => {
   const chinese = Buffer.from("\u4e2d", "utf8").toString("base64");
 
   assert.deepEqual(
-    Buffer.from(prepareEscPosPayload(utf8Euro, "cp858"), "base64"),
+    Buffer.from(prepareEscPosPayload(utf8Euro, {
+      encoding: "cp858",
+      escPosCodePage: 19,
+    }), "base64"),
     Buffer.from([0x1b, 0x74, 0x13, 0xd5]),
   );
   assert.deepEqual(
@@ -91,4 +94,26 @@ test("supports CP858, UTF-8, GB18030, and raw printer profiles", () => {
     Buffer.from(prepareEscPosPayload(utf8Euro, "raw"), "base64"),
     Buffer.from(utf8Euro, "base64"),
   );
+});
+
+test("encodes CP850 without inventing an ESC t number", () => {
+  const payload = Buffer.from("é", "utf8").toString("base64");
+
+  const result = Buffer.from(prepareEscPosPayload(payload, {
+    encoding: "cp850",
+    escPosCodePage: null,
+  }), "base64");
+
+  assert.deepEqual(result, Buffer.from([0x82]));
+});
+
+test("unknown automatic profile avoids the command that selected Chinese glyphs", () => {
+  const payload = Buffer.from("3,00 €", "utf8").toString("base64");
+
+  const result = Buffer.from(prepareEscPosPayload(payload, {
+    encoding: "windows-1252",
+    escPosCodePage: null,
+  }), "base64");
+
+  assert.deepEqual(result, Buffer.from([0x33, 0x2c, 0x30, 0x30, 0x20, 0x80]));
 });

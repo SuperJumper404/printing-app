@@ -88,14 +88,43 @@
               </label>
             </fieldset>
 
-            <label class="encoding-setting">
-              <span>Encodage</span>
-              <select v-model="printer.encoding" @change="savePrinterConfig">
+            <div class="encoding-setting">
+              <label :for="`encoding-${printer.id}`">Encodage</label>
+              <select
+                :id="`encoding-${printer.id}`"
+                v-model="printer.encoding"
+                @change="encodingChanged(printer)"
+              >
                 <option v-for="option in PRINTER_ENCODING_OPTIONS" :key="option.value" :value="option.value">
                   {{ option.label }}
                 </option>
               </select>
-            </label>
+
+              <div class="encoding-fields">
+                <label>
+                  <span>Table ESC/POS</span>
+                  <input
+                    v-model.number="printer.escPosCodePage"
+                    type="number"
+                    min="0"
+                    max="255"
+                    placeholder="Auto"
+                    :disabled="!supportsEscPosCodePage(printer.encoding)"
+                    @change="savePrinterConfig"
+                  />
+                </label>
+                <label>
+                  <span>Caracteres / ligne</span>
+                  <input
+                    v-model.number="printer.charsPerLine"
+                    type="number"
+                    min="24"
+                    max="96"
+                    @change="savePrinterConfig"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
 
           <div class="transport-list">
@@ -256,6 +285,15 @@ function transportChanged(printer, transportId) {
   savePrinterConfig();
 }
 
+function encodingChanged(printer) {
+  if (!supportsEscPosCodePage(printer.encoding)) printer.escPosCodePage = null;
+  savePrinterConfig();
+}
+
+function supportsEscPosCodePage(encoding) {
+  return ["cp858", "cp850", "windows-1252"].includes(encoding);
+}
+
 async function authorizeTransport(printer, transportId) {
   printer.authorizationPending = transportId;
   try {
@@ -397,7 +435,9 @@ async function addManualPrinter() {
       addresses: [address.ip],
       instanceIds: [],
       ticketTypes: { caisse: false, cuisine: false },
-      encoding: "windows-1252",
+      encoding: "auto",
+      escPosCodePage: null,
+      charsPerLine: 48,
       transports,
       observations: [],
       testResults: {},
@@ -469,10 +509,23 @@ onMounted(() => loadPrinters(false));
   gap: 6px;
 }
 
-.encoding-setting span {
+.encoding-setting > label,
+.encoding-fields span {
   color: #273246;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
+}
+
+.encoding-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.encoding-fields label {
+  display: grid;
+  gap: 5px;
 }
 
 .page-header,

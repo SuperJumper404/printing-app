@@ -10,6 +10,7 @@ function printer(id, enabledTransports, ticketTypes = { caisse: true }, encoding
   return {
     id,
     encoding,
+    escPosCodePage: encoding === "windows-1252" ? 16 : null,
     ticketTypes,
     transports: Object.fromEntries(
       enabledTransports.map((transportId) => [

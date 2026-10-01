@@ -80,6 +80,8 @@ const {
   dispatchEscPosJob,
   testPrinterTransports,
 } = require("./lib/printers/dispatch");
+const { resolvePrinterProfile } = require("./lib/printers/printerProfiles");
+const { buildPrinterTestPayload } = require("./lib/printers/testTicket");
 const {
   configureAutoLaunch,
   runStartupPrinterTests,
@@ -1485,7 +1487,7 @@ ipcMain.handle("test-printer-protocols", async (_, config) => {
 
   const result = await testPrinterTransports(
     currentPrinter,
-    buildTestPayload(currentPrinter.name),
+    buildTestPayload(currentPrinter),
     printerTransportSenders
   );
   return {
@@ -1647,6 +1649,9 @@ function getProtocolLabel(protocol) {
 }
 
 function buildTestPayload(label) {
+  if (label && typeof label === "object") {
+    return buildPrinterTestPayload(label, resolvePrinterProfile(label));
+  }
   const text = Buffer.from(`Test d'impression SmartEat\n${label}\n\n`, "utf8");
   const cut = Buffer.from([0x1d, 0x56, 0x00]);
   return Buffer.concat([text, cut]).toString("base64");

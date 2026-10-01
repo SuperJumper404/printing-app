@@ -27,7 +27,7 @@ test("defines labels and editable fields for all ten transports", async () => {
   }
   assert.deepEqual(
     PRINTER_ENCODING_OPTIONS.map((item) => item.value),
-    ["windows-1252", "cp858", "utf8", "gb18030", "raw"],
+    ["auto", "cp858", "cp850", "windows-1252", "utf8", "gb18030", "raw"],
   );
 });
 

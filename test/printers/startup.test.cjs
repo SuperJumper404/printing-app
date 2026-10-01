@@ -38,7 +38,7 @@ test("prints once for every saved printer with an enabled transport", async () =
   const calls = [];
   const result = await runStartupPrinterTests({
     printers: [printer("counter", true), printer("disabled", false), printer("kitchen", true)],
-    buildTestPayload: (name) => `payload:${name}`,
+    buildTestPayload: (printer) => `payload:${printer.name}`,
     testPrinterTransports: async (item, payload) => {
       calls.push([item.id, payload]);
       if (item.id === "counter") throw new Error("offline");
@@ -48,8 +48,8 @@ test("prints once for every saved printer with an enabled transport", async () =
   });
 
   assert.deepEqual(calls, [
-    ["counter", "payload:Demarrage - counter"],
-    ["kitchen", "payload:Demarrage - kitchen"],
+    ["counter", "payload:counter"],
+    ["kitchen", "payload:kitchen"],
   ]);
   assert.deepEqual(result.map((item) => [item.printerId, item.success]), [
     ["counter", false],

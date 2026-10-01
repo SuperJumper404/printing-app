@@ -17,8 +17,10 @@ const networkFields = (defaultPort) => [
 ];
 
 export const PRINTER_ENCODING_OPTIONS = [
-  { value: "windows-1252", label: "Windows-1252" },
+  { value: "auto", label: "Automatique" },
   { value: "cp858", label: "CP858 (Europe / euro)" },
+  { value: "cp850", label: "CP850 (Europe)" },
+  { value: "windows-1252", label: "Windows-1252" },
   { value: "utf8", label: "UTF-8" },
   { value: "gb18030", label: "GB18030" },
   { value: "raw", label: "Brut (aucune conversion)" },
@@ -139,7 +141,9 @@ export function mergePrinterConfiguration(discovered, saved) {
 
   return {
     ...discovered,
-    encoding: saved.encoding || discovered.encoding || "windows-1252",
+    encoding: saved.encoding || discovered.encoding || "auto",
+    escPosCodePage: saved.escPosCodePage ?? discovered.escPosCodePage ?? null,
+    charsPerLine: saved.charsPerLine || discovered.charsPerLine || 48,
     ticketTypes: {
       caisse: false,
       cuisine: false,

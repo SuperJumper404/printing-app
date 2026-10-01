@@ -185,6 +185,18 @@ test("tests every enabled transport without requiring a ticket type", async () =
   assert.equal(result.success, true);
 });
 
+test("tests transports with received payload even when printer source is ticketData", async () => {
+  const calls = [];
+  const result = await testPrinterTransports(
+    printer("structured", ["windowsRaw"], {}, "raw", "ticketData"),
+    "VEVTVA==",
+    { windowsRaw: { send: async (input) => calls.push(input) } },
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(calls[0].base64Data, "VEVTVA==");
+});
+
 test("received source keeps using provided ESC POS", async () => {
   const calls = [];
   const job = jobWithTicketData();

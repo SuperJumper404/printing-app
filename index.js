@@ -80,7 +80,10 @@ const {
   dispatchEscPosJob,
   testPrinterTransports,
 } = require("./lib/printers/dispatch");
-const { getTicketPrintableText } = require("./lib/printers/printHistoryText");
+const {
+  decoratePrintHistoryEntry,
+  getTicketPrintableText,
+} = require("./lib/printers/printHistoryText");
 const { resolvePrinterProfile } = require("./lib/printers/printerProfiles");
 const { buildPrinterTestPayload } = require("./lib/printers/testTicket");
 const {
@@ -1245,7 +1248,7 @@ function testPrinter() {
 }
 
 function getPrintHistory() {
-  return store.get("printHistory", []);
+  return store.get("printHistory", []).map(decoratePrintHistoryEntry);
 }
 
 function savePrintHistory(history) {

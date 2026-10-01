@@ -43,6 +43,11 @@
 
           <details class="payload-details">
             <summary>Voir le ticket</summary>
+            <pre>{{ ticket.printableText || "Apercu indisponible" }}</pre>
+          </details>
+
+          <details class="payload-details">
+            <summary>Voir les donnees</summary>
             <pre>{{ formatPayload(ticket.payload) }}</pre>
           </details>
 

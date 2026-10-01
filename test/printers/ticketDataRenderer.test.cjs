@@ -7,7 +7,10 @@ const {
   renderTicketDataText,
   validateTicketData,
 } = require("../../lib/printers/ticketDataRenderer");
-const { getTicketPrintableText } = require("../../lib/printers/printHistoryText");
+const {
+  decoratePrintHistoryEntry,
+  getTicketPrintableText,
+} = require("../../lib/printers/printHistoryText");
 
 function sampleCashierTicketData(overrides = {}) {
   const shop = overrides.shop || {
@@ -106,4 +109,15 @@ test("history text prefers ticketData over ESC POS text", () => {
 
   assert.match(text, /Structured Shop/);
   assert.doesNotMatch(text, /Legacy Shop/);
+});
+
+test("history entries expose printable text and keep full payload", () => {
+  const payload = {
+    dataFormatESCPOS: Buffer.from("Legacy Shop\n", "utf8").toString("base64"),
+    ticketData: sampleCashierTicketData({ shop: { name: "Structured Shop" } }),
+  };
+  const entry = decoratePrintHistoryEntry({ id: "history-1", payload });
+
+  assert.match(entry.printableText, /Structured Shop/);
+  assert.equal(entry.payload, payload);
 });

@@ -68,6 +68,25 @@ function sampleCashierTicketData(overrides = {}) {
   };
 }
 
+function stripEscPosText(base64Data) {
+  const bytes = Buffer.from(base64Data, "base64");
+  const output = [];
+  for (let index = 0; index < bytes.length; index++) {
+    const byte = bytes[index];
+    const next = bytes[index + 1];
+    if (byte === 0x1b) {
+      index += next === 0x40 ? 1 : 2;
+      continue;
+    }
+    if (byte === 0x1d) {
+      index += 2;
+      continue;
+    }
+    output.push(byte);
+  }
+  return Buffer.from(output).toString("utf8");
+}
+
 test("renders text from ticketData render sections", () => {
   const text = renderTicketDataText(sampleCashierTicketData());
   assert.match(text, /Le Comptoir/);
@@ -92,6 +111,30 @@ test("renders ESC POS and ePOS XML from render lines", () => {
       .length > 0
   );
   assert.match(renderTicketDataEposXml(sampleCashierTicketData()), /<epos-print/);
+});
+
+test("rebuilds columns within paper width instead of using oversized fallback", () => {
+  const ticketData = sampleCashierTicketData();
+  ticketData.render.paperWidth = 32;
+  ticketData.render.sections[1].lines = [
+    {
+      type: "columns",
+      size: "double",
+      columns: [
+        { key: "qty", text: "12x", width: 5 },
+        { key: "name", text: "Produit tres tres long", width: 24 },
+        { key: "price", text: "1234,00 EUR", width: 10, align: "right" },
+      ],
+      fallbackText: "12x  Produit tres tres long      1234,00 EUR",
+    },
+  ];
+
+  const text = stripEscPosText(renderTicketDataEscPos(ticketData, { charsPerLine: 32 }));
+  const productLine = text.split(/\r?\n/).find((line) => line.includes("1234,00 EUR"));
+
+  assert.ok(productLine);
+  assert.equal(productLine.length, 32);
+  assert.doesNotMatch(text, /Produit tres tres long\s+1234,00 EUR/);
 });
 
 test("rejects missing render sections", () => {

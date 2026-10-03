@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  dispatchCashDrawerOpen,
   dispatchEscPosJob,
   testPrinterTransports,
 } = require("../../lib/printers/dispatch");
@@ -99,6 +100,25 @@ test("sends identical base64 to two enabled transports", async () => {
   assert.equal(result.success, true);
   assert.equal(result.transportCount, 2);
   assert.deepEqual(calls.map((call) => call.base64Data), ["AQID", "AQID"]);
+});
+
+test("opens cash drawer with ESC POS pulse on caisse printers", async () => {
+  const calls = [];
+  const senders = {
+    windowsRaw: { send: async (input) => calls.push(input) },
+  };
+  const result = await dispatchCashDrawerOpen(
+    [
+      printer("counter", ["windowsRaw"], { caisse: true }, "raw", "ticketData"),
+      printer("kitchen", ["windowsRaw"], { cuisine: true }, "raw", "received"),
+    ],
+    senders,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.transportCount, 1);
+  assert.equal(calls[0].base64Data, "G3AAGfo=");
+  assert.equal(Buffer.from(calls[0].base64Data, "base64").toString("hex"), "1b700019fa");
 });
 
 test("prepares the same ticket with each printer encoding", async () => {

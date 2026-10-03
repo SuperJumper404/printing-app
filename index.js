@@ -77,6 +77,7 @@ const {
   isTrustedDeviceOrigin,
 } = require("./lib/printers/devicePermissions");
 const {
+  dispatchCashDrawerOpen,
   dispatchEscPosJob,
   testPrinterTransports,
 } = require("./lib/printers/dispatch");
@@ -1370,6 +1371,15 @@ async function printTicketPayload(payload) {
   return dispatchEscPosJob(payload, savedPrinters, printerTransportSenders);
 }
 
+async function openCashDrawer(payload = {}) {
+  const savedPrinters = migratePrinterConfigurations(
+    store.get("printers", [])
+  );
+  return dispatchCashDrawerOpen(savedPrinters, printerTransportSenders, {
+    ticketType: payload.ticketType || "caisse",
+  });
+}
+
 ipcMain.handle("get-print-history", () => {
   return getPrintHistory();
 });
@@ -1792,6 +1802,33 @@ appServer.post("/print", async (req, res) => {
       error: err.message,
     });
     console.error("Erreur impression:", err.message);
+    res.status(500).json({ success: false, error: err.message, historyEntry });
+  }
+});
+
+appServer.post("/cash-drawer/open", async (req, res) => {
+  const payload = {
+    ...(req.body || {}),
+    action: "open_cash_drawer",
+    ticketType: req.body?.ticketType || "caisse",
+  };
+
+  try {
+    const result = await openCashDrawer(payload);
+    const historyEntry = addPrintHistoryEntry(payload, result);
+    res.status(result.success ? 200 : 500).json({
+      ...result,
+      historyEntry,
+      message: result.success
+        ? `Tiroir caisse ouvert via ${result.transportCount} transport(s)`
+        : result.error,
+    });
+  } catch (err) {
+    const historyEntry = addPrintHistoryEntry(payload, {
+      success: false,
+      error: err.message,
+    });
+    console.error("Erreur ouverture tiroir caisse:", err.message);
     res.status(500).json({ success: false, error: err.message, historyEntry });
   }
 });

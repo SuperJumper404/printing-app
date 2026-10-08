@@ -197,7 +197,7 @@
                       :type="field.type"
                       :min="field.min"
                       :max="field.max"
-                      :placeholder="field.placeholder"
+                      :placeholder="field.placeholder || field.defaultValue"
                       :disabled="row.controlDisabled"
                       @change="savePrinterConfig"
                     />
@@ -433,11 +433,13 @@ async function addManualPrinter() {
     }
     const transports = createEmptyTransports();
     const transportId = ({ 631: "ipp", 515: "lpr", 80: "eposHttp" })[port] || "network9100";
+    const config = { host: address.ip, port };
+    if (transportId === "network9100") config.timeoutMs = 15000;
     transports[transportId] = {
       available: true,
       enabled: false,
       verified: false,
-      config: { host: address.ip, port },
+      config,
       reason: null,
     };
     printers.value.unshift({

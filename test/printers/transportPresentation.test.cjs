@@ -25,6 +25,11 @@ test("defines labels and editable fields for all ten transports", async () => {
     assert.ok(transport.label);
     assert.ok(transport.fields.length > 0, `${transport.id} must expose config fields`);
   }
+  const network9100 = TRANSPORT_PRESENTATION.find((item) => item.id === "network9100");
+  assert.deepEqual(
+    network9100.fields.map((field) => field.key),
+    ["host", "port", "timeoutMs"],
+  );
   assert.deepEqual(
     PRINTER_ENCODING_OPTIONS.map((item) => item.value),
     ["auto", "cp858", "cp850", "windows-1252", "utf8", "gb18030", "raw"],

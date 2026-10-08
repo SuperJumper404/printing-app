@@ -1210,7 +1210,7 @@ ipcMain.handle("discover-printers", async (_, options = {}) => {
         available: true,
         enabled: false,
         verified: false,
-        config: { host: printer.ip, port: 9100 },
+        config: { host: printer.ip, port: 9100, timeoutMs: 15000 },
         reason: null,
       },
     },

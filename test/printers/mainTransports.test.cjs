@@ -66,7 +66,8 @@ test("network 9100 writes decoded bytes and closes the socket", async () => {
 test("network timeout rejects and destroys the socket", async () => {
   const socket = new EventEmitter();
   let destroyed = false;
-  socket.setTimeout = () => {};
+  let timeoutDelay;
+  socket.setTimeout = (delay) => { timeoutDelay = delay; };
   socket.connect = () => queueMicrotask(() => socket.emit("timeout"));
   socket.destroy = () => { destroyed = true; };
   const sender = createNetworkSender({ createSocket: () => socket });
@@ -76,6 +77,25 @@ test("network timeout rejects and destroys the socket", async () => {
     /delai/i,
   );
   assert.equal(destroyed, true);
+  assert.equal(timeoutDelay, 15000);
+});
+
+test("network 9100 uses the configured timeout when provided", async () => {
+  const socket = new EventEmitter();
+  let timeoutDelay;
+  socket.setTimeout = (delay) => { timeoutDelay = delay; };
+  socket.connect = () => queueMicrotask(() => socket.emit("timeout"));
+  socket.destroy = () => {};
+  const sender = createNetworkSender({ createSocket: () => socket });
+
+  await assert.rejects(
+    sender.send({
+      transport: { config: { host: "host", port: 9100, timeoutMs: 30000 } },
+      base64Data: "AQID",
+    }),
+    /delai/i,
+  );
+  assert.equal(timeoutDelay, 30000);
 });
 
 test("IPP sends decoded ESC/POS bytes as application/octet-stream", async () => {

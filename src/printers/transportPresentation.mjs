@@ -16,6 +16,11 @@ const networkFields = (defaultPort) => [
   { key: "port", label: "Port", type: "number", min: 1, max: 65535, defaultValue: defaultPort },
 ];
 
+const networkEscPosFields = [
+  ...networkFields(9100),
+  { key: "timeoutMs", label: "Delai (ms)", type: "number", min: 1000, max: 60000, defaultValue: 15000 },
+];
+
 export const PRINTER_ENCODING_OPTIONS = [
   { value: "auto", label: "Automatique" },
   { value: "cp858", label: "CP858 (Europe / euro)" },
@@ -36,7 +41,7 @@ export const TRANSPORT_PRESENTATION = [
       { key: "portName", label: "Port Windows", type: "text" },
     ],
   },
-  { id: "network9100", label: "ESC/POS reseau", family: "Reseau", fields: networkFields(9100) },
+  { id: "network9100", label: "ESC/POS reseau", family: "Reseau", fields: networkEscPosFields },
   {
     id: "ipp",
     label: "IPP",

@@ -12,6 +12,19 @@ const {
   getTicketPrintableText,
 } = require("../../lib/printers/printHistoryText");
 
+test('card tickets render in SmartEat data mode and history with a masked PAN', () => {
+  const ticket = { schemaVersion: 1, kind: 'card_ticket', business: { terminalPaymentId: 81 },
+    render: { paperWidth: 32, sections: [{ id: 'card', lines: [
+      { type: 'text', text: 'Carte : VISA' },
+      { type: 'text', text: 'PAN : ************4242' },
+    ] }] } };
+  assert.equal(validateTicketData(ticket).valid, true);
+  assert.match(renderTicketDataText(ticket), /Carte : VISA/);
+  assert.match(renderTicketDataEposXml(ticket), /PAN : \*{12}4242/);
+  assert.match(Buffer.from(renderTicketDataEscPos(ticket), 'base64').toString('latin1'), /PAN : \*{12}4242/);
+  assert.doesNotMatch(renderTicketDataText(ticket), /Telephone non renseigne/);
+});
+
 function sampleCashierTicketData(overrides = {}) {
   const shop = overrides.shop || {
     name: "Le Comptoir",

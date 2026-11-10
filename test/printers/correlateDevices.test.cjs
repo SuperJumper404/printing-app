@@ -120,3 +120,58 @@ test("merges enabled transport state without losing either route", () => {
   assert.equal(devices[0].transports.windowsRaw.enabled, true);
   assert.equal(devices[0].transports.network9100.enabled, true);
 });
+
+test("mDNS and network probes correlate by actual address and retain a stable mDNS identity after DHCP change", () => {
+  const make = (ip) => correlatePrinterObservations([
+    observation(`network:${ip}`, { source: "network", addresses: [ip], transports: { network9100: { available: true, config: { host: ip, port: 9100 } } } }),
+    observation("mdns:Cuisine._ipp._tcp.local", { source: "mdns", networkIdentity: "Cuisine._ipp._tcp.local", addresses: [ip], transports: { ipp: { available: true, config: { host: ip, port: 631 } } } }),
+  ]);
+  const before = make("10.0.0.4");
+  const after = make("10.0.0.8");
+  assert.equal(before.length, 1);
+  assert.equal(after[0].id, before[0].id);
+  assert.equal(after[0].transports.network9100.config.host, "10.0.0.8");
+});
+
+test("an old network address association cannot rename a different mDNS printer", () => {
+  const devices = correlatePrinterObservations([
+    observation("network:10.0.0.8", { source: "network", addresses: ["10.0.0.8"] }),
+    observation("mdns:New._ipp._tcp.local", { source: "mdns", networkIdentity: "New._ipp._tcp.local", addresses: ["10.0.0.8"] }),
+  ], [{ printerId: "old-printer", observationIds: ["network:10.0.0.8", "mdns:Old._ipp._tcp.local"] }]);
+  assert.equal(devices.length, 1);
+  assert.notEqual(devices[0].id, "old-printer");
+});
+
+test("a stale saved IP cannot union two printers when the old mDNS identity moved elsewhere", () => {
+  const devices = correlatePrinterObservations([
+    observation("mdns:old-printer", { source: "mdns", networkIdentity: "old-printer", addresses: ["10.0.0.8"],
+      transports: { ipp: { available: true, config: { host: "10.0.0.8", port: 631 } } } }),
+    observation("network:10.0.0.8", { source: "network", addresses: ["10.0.0.8"],
+      transports: { network9100: { available: true, config: { host: "10.0.0.8", port: 9100 } } } }),
+    observation("mdns:new-printer", { source: "mdns", networkIdentity: "new-printer", addresses: ["10.0.0.7"],
+      transports: { ipp: { available: true, config: { host: "10.0.0.7", port: 631 } } } }),
+    observation("network:10.0.0.7", { source: "network", addresses: ["10.0.0.7"],
+      transports: { network9100: { available: true, config: { host: "10.0.0.7", port: 9100 } } } }),
+  ], [{ printerId: "favorite-old", observationIds: ["network:10.0.0.7", "mdns:old-printer"] }]);
+  assert.equal(devices.length, 2);
+  const favorite = devices.find((printer) => printer.id === "favorite-old");
+  assert.equal(favorite.networkIdentity, "old-printer");
+  assert.deepEqual(favorite.addresses, ["10.0.0.8"]);
+  assert.equal(favorite.transports.network9100.config.host, "10.0.0.8");
+  const other = devices.find((printer) => printer.networkIdentity === "new-printer");
+  assert.notEqual(other.id, "favorite-old");
+  assert.equal(other.transports.network9100.config.host, "10.0.0.7");
+});
+
+test("a shared mDNS service preserves the saved printer when its previous primary service disappears", () => {
+  const [printer] = correlatePrinterObservations([
+    observation("mdns:Caisse._pdl-datastream._tcp.local", {
+      source: "mdns", networkIdentity: "Caisse._pdl-datastream._tcp.local", addresses: ["10.0.0.8"],
+    }),
+    observation("network:10.0.0.8", { source: "network", addresses: ["10.0.0.8"] }),
+  ], [{ printerId: "favorite-old", observationIds: [
+    "mdns:Caisse._ipp._tcp.local", "mdns:Caisse._pdl-datastream._tcp.local", "network:10.0.0.7",
+  ] }]);
+  assert.equal(printer.id, "favorite-old");
+  assert.deepEqual(printer.addresses, ["10.0.0.8"]);
+});

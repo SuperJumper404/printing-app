@@ -1,17 +1,17 @@
 <template>
-  <div class="main-content">
+  <div class="printing-page">
     <div class="card">
       <div class="history-header">
         <div>
           <h1 class="text-3xl font-bold">Historique des impressions</h1>
-          <p class="subtitle">Les 100 derniers tickets imprimes depuis cet agent.</p>
+          <p class="subtitle">Les 100 dernières demandes d’impression de cet agent.</p>
         </div>
-        <button class="btn-refresh" @click="loadHistory">Rafraichir</button>
+        <button class="btn-refresh" @click="loadHistory">Rafraîchir</button>
       </div>
 
       <div v-if="loading" class="empty-state">Chargement de l'historique...</div>
       <div v-else-if="history.length === 0" class="empty-state">
-        Aucun ticket imprime pour le moment.
+        Aucune impression pour le moment.
       </div>
 
       <div v-else class="history-list">
@@ -31,7 +31,7 @@
               </div>
             </div>
             <span class="status-pill">
-              {{ ticket.status === "success" ? "Imprime" : "Erreur" }}
+              {{ statusLabel(ticket.status) }}
             </span>
           </div>
 
@@ -43,11 +43,11 @@
 
           <details class="payload-details">
             <summary>Voir le ticket</summary>
-            <pre>{{ ticket.printableText || "Apercu indisponible" }}</pre>
+            <pre>{{ ticket.printableText || "Aperçu indisponible" }}</pre>
           </details>
 
           <details class="payload-details">
-            <summary>Voir les donnees</summary>
+            <summary>Voir les données</summary>
             <pre>{{ formatPayload(ticket.payload) }}</pre>
           </details>
 
@@ -64,7 +64,7 @@
               :disabled="reprintingId === ticket.id"
               @click="reprint(ticket)"
             >
-              {{ reprintingId === ticket.id ? "Reimpression..." : "Reimprimer" }}
+              {{ reprintingId === ticket.id ? "Réimpression…" : "Réimprimer" }}
             </button>
           </div>
         </article>
@@ -76,17 +76,13 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue";
 const { ipcRenderer } = window.require("electron");
-import axios from "axios";
-import config from "../config.json";
-
-const configVars = config[import.meta.env.VITE_USER_NODE_ENV];
-const userSession = ref(null);
 const history = ref([]);
 const loading = ref(true);
 const reprintingId = ref(null);
 const openingPdfId = ref(null);
-let pollingInterval = null;
-let pollingInProgress = false;
+function statusLabel(status) {
+  return ({ success: "Transmis", partial: "Transmission partielle", unknown: "Résultat incertain", error: "Erreur" })[status] || "Erreur";
+}
 
 async function loadHistory() {
   loading.value = true;
@@ -96,35 +92,6 @@ async function loadHistory() {
     console.error("Erreur chargement historique:", error);
   } finally {
     loading.value = false;
-  }
-}
-
-async function pollPrintingJobs() {
-  if (
-    pollingInProgress ||
-    !userSession.value?.shopid ||
-    !configVars?.pullPrintingJobUrl
-  ) return;
-
-  pollingInProgress = true;
-  try {
-    const printingJobs = await axios.post(configVars.pullPrintingJobUrl, {
-      ID: userSession.value.shopid,
-    });
-
-    if (printingJobs.data?.data) {
-      for (const job of printingJobs.data.data) {
-        const result = await ipcRenderer.invoke("print-job", job);
-        if (!result.success) {
-          console.error("Echec impression du ticket:", result.error, result.results);
-        }
-      }
-      await loadHistory();
-    }
-  } catch (error) {
-    console.error("Erreur recuperation impressions:", error);
-  } finally {
-    pollingInProgress = false;
   }
 }
 
@@ -175,23 +142,32 @@ function formatPayload(payload) {
 }
 
 onMounted(async () => {
-  userSession.value = await ipcRenderer.invoke("get-user-session");
+  ipcRenderer.on("print-history-updated", loadHistory);
   await loadHistory();
-  await pollPrintingJobs();
-  pollingInterval = setInterval(pollPrintingJobs, 30000);
 });
 
 onBeforeUnmount(() => {
-  if (pollingInterval) clearInterval(pollingInterval);
+  ipcRenderer.removeListener("print-history-updated", loadHistory);
 });
 </script>
 
 <style scoped>
+.printing-page {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
 .history-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .printing-page { padding: 16px; }
 }
 
 .subtitle {

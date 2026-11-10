@@ -7,92 +7,108 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, for example 1.0.1"
+        description: "Committed version to release, for example 4.2.0"
         required: true
         type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
 jobs:
   release-windows:
     name: Build and publish Windows release
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version and existing release
+        id: release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            if ($env:REQUESTED_VERSION -notmatch '^\d+\.\d+\.\d+$' -or $env:REQUESTED_VERSION -ne $version) {
+              throw 'Commit the requested package.json version before starting this workflow.'
+            }
+            $tag = "v$version"
+          } else {
+            $tag = $env:GITHUB_REF_NAME
+            if ($tag -ne "v$version") { throw 'The tag and package.json version must match.' }
+          }
+          $sourceCommit = git rev-parse HEAD
+          $tagCommit = git rev-parse --verify "$tag^{commit}" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $tagCommit -ne $sourceCommit) { throw 'The existing tag points to another commit.' }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "commit=$sourceCommit" >> $env:GITHUB_OUTPUT
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json url --jq .url 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            "exists=true" >> $env:GITHUB_OUTPUT
+            Write-Output 'The release already exists; its validated assets are preserved.'
+          } else {
+            "exists=false" >> $env:GITHUB_OUTPUT
+          }
+          exit 0
 
       - name: Setup Node.js
+        if: steps.release.outputs.exists != 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Matches the signed bundled runtime and its checked-in license.
+          node-version: 22.13.1
 
       - name: Install dependencies
+        if: steps.release.outputs.exists != 'true'
         run: npm install
 
-      - name: Set workflow dispatch version
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          npm version ${{ inputs.version }} --no-git-tag-version
+      - name: Verify application
+        if: steps.release.outputs.exists != 'true'
+        run: npm run verify
 
-      - name: Build frontend
-        run: npm run build:web
-
-      - name: Build Electron app
-        run: npx electron-builder --win --publish never
+      - name: Build Windows installer and service
+        if: steps.release.outputs.exists != 'true'
+        run: npm run release:win
 
       - name: Prepare updater assets
+        if: steps.release.outputs.exists != 'true'
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           New-Item -ItemType Directory -Path dist6/publish-assets -Force | Out-Null
-          Copy-Item -LiteralPath "dist6/latest.yml" -Destination "dist6/publish-assets/latest.yml" -Force
+          Copy-Item -LiteralPath 'dist6/latest.yml' -Destination 'dist6/publish-assets/latest.yml' -Force
           Copy-Item -LiteralPath "dist6/SmartEat Printer Agent Setup $version.exe" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe" -Force
           Copy-Item -LiteralPath "dist6/SmartEat Printer Agent Setup $version.exe.blockmap" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe.blockmap" -Force
-          Copy-Item -LiteralPath "dist6/SmartEat Printer Agent $version.exe" -Destination "dist6/publish-assets/SmartEat-Printer-Agent-$version.exe" -Force
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.exists != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.release.outputs.commit }}
         run: |
-          $tag = $env:GITHUB_REF_NAME
-          gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes 2>$null || $true
-          gh release create $tag `
-            --repo $env:GITHUB_REPOSITORY `
-            --title $tag `
-            --notes "SmartEat Printer Agent $tag" `
-            --latest `
-            "dist6/publish-assets/latest.yml" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$($tag.TrimStart('v')).exe" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$($tag.TrimStart('v')).exe.blockmap" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-$($tag.TrimStart('v')).exe"
-
-      - name: Publish manual workflow release
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = "v${{ inputs.version }}"
-          gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes 2>$null || $true
-          git tag $tag
-          git push origin $tag --force
-          gh release create $tag `
-            --repo $env:GITHUB_REPOSITORY `
-            --title $tag `
-            --notes "SmartEat Printer Agent $tag" `
-            --latest `
-            "dist6/publish-assets/latest.yml" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-${{ inputs.version }}.exe" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-${{ inputs.version }}.exe.blockmap" `
-            "dist6/publish-assets/SmartEat-Printer-Agent-${{ inputs.version }}.exe"
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          # Upload everything to a draft before exposing the updater metadata.
+          gh release create $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_COMMIT --title "SmartEat Printer Agent $version" --generate-notes --draft `
+            'dist6/publish-assets/latest.yml' `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe" `
+            "dist6/publish-assets/SmartEat-Printer-Agent-Setup-$version.exe.blockmap"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
 
       - name: Upload dist artifact
+        if: steps.release.outputs.exists != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-release-files
-          path: dist6/**
+          path: dist6/publish-assets/*

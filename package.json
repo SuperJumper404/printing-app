@@ -1,21 +1,26 @@
 {
   "name": "printing-app",
-  "version": "4.0.9",
+  "version": "4.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npm.cmd run test:discovery && npm.cmd run test:printers && npm.cmd run test:terminals && npm.cmd run test:shared",
+    "test": "npm.cmd run test:discovery && npm.cmd run test:printers && npm.cmd run test:terminals && npm.cmd run test:shared && npm.cmd run test:agent && npm.cmd run test:desktop && npm.cmd run test:service",
     "test:discovery": "node --test test/*.test.cjs",
     "test:printers": "node --test test/printers/*.test.cjs",
     "test:terminals": "node --test test/terminals/*.test.cjs",
     "test:shared": "node --test packages/shared/test/*.test.js",
     "verify": "npm.cmd test && node --check index.js && npm.cmd run build:web",
-    "release:win": "npm.cmd run build:web && electron-builder --win --publish never",
-    "build": "electron-builder",
+    "release:win": "npm.cmd run build:web && npm.cmd run build:service && electron-builder --win --publish never",
+    "build": "npm.cmd run build:service && electron-builder",
     "build:web": "vite build",
     "android:sync": "npm.cmd run build:web && npx.cmd cap sync android",
     "android:open": "npx.cmd cap open android",
-    "android:run": "npm.cmd run build:web && npx.cmd cap run android"
+    "android:run": "npm.cmd run build:web && npx.cmd cap run android",
+    "test:agent": "node --test test/agent/*.test.cjs",
+    "test:desktop": "node --test test/desktop/*.test.cjs",
+    "test:service": "node --test test/servicePackaging/*.test.cjs",
+    "build:service": "node scripts/build-service.js",
+    "service:run": "node service/worker.js"
   },
   "keywords": [],
   "author": "",
@@ -30,7 +35,8 @@
     "postcss": "^8.5.6",
     "prettier": "^3.6.2",
     "tailwindcss": "^4.1.18",
-    "vite": "^7.2.2"
+    "vite": "^7.2.2",
+    "esbuild": "^0.25.12"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
@@ -52,6 +58,7 @@
     "node-gyp": "^11.5.0",
     "node-pre-gyp": "^0.17.0",
     "pdf-to-printer": "^5.6.1",
+    "sax": "^1.4.3",
     "serialport": "^13.0.0",
     "vue": "^3.5.24"
   },
@@ -62,6 +69,7 @@
     "files": [
       "index.js",
       "lib/**/*",
+      "src/printers/transportPresentation.mjs",
       "package.json",
       "frontend/dist/**/*",
       "!*.rar",
@@ -81,15 +89,32 @@
       {
         "from": "build/icon.ico",
         "to": "icon.ico"
+      },
+      {
+        "from": "service-dist",
+        "to": "service"
+      },
+      {
+        "from": "service-dist/node_modules",
+        "to": "service/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts/windows-service",
+        "to": "windows-service",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "build/icon.ico",
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -100,7 +125,8 @@
       "createStartMenuShortcut": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "shortcutName": "SmartEat Printer Agent"
+      "shortcutName": "SmartEat Printer Agent",
+      "include": "build/windows-service/installer.nsh"
     },
     "publish": [
       {

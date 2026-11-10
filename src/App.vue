@@ -31,10 +31,22 @@
           >Mon compte</a
         >
       </nav>
+      <div class="service-health" role="status" aria-live="polite">
+        <span class="service-indicator" :class="{ online: serviceStatus?.online }"></span>
+        {{ serviceStatus === null ? "Connexion au service…" : serviceStatus.online ? "Service Windows actif" : "Service indisponible" }}
+        <small v-if="serviceStatus?.online">{{ serviceStatus.companionOnline ? "Compagnon matériel connecté" : "Connexion du compagnon…" }}</small>
+      </div>
       <div class="app-version">Version {{ appVersion }}</div>
     </aside>
 
     <main class="main-content">
+      <section v-if="serviceStatus && !serviceStatus.online" class="service-banner" role="alert">
+        <div>
+          <strong>Le service Windows SmartEat est indisponible.</strong>
+          <p>{{ serviceError || "Démarrez le service pour reprendre les impressions. Si le service n’est pas installé, relancez l’installateur SmartEat." }}</p>
+        </div>
+        <button type="button" :disabled="startingService" @click="startService">{{ startingService ? "Démarrage…" : "Démarrer le service" }}</button>
+      </section>
       <HomeView v-if="view === 'home'" />
       <PrintingView v-if="view === 'printing'" />
       <PrintersView v-if="view === 'printers'" />
@@ -45,7 +57,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import HomeView from "@/views/HomeView.vue";
 import PrintingView from "@/views/PrintingView.vue";
 import PrintersView from "@/views/PrintersView.vue";
@@ -54,18 +66,45 @@ import AccountView from "@/views/AccountView.vue";
 import "./style.css";
 const view = ref("home");
 const appVersion = ref("");
+const serviceStatus = ref(null);
+const serviceError = ref("");
+const startingService = ref(false);
+const { ipcRenderer } = window.require("electron");
+const updateServiceStatus = (_event, status) => { serviceStatus.value = status; };
+
+async function startService() {
+  startingService.value = true;
+  serviceError.value = "";
+  try {
+    await ipcRenderer.invoke("restart-service");
+    serviceStatus.value = await ipcRenderer.invoke("get-service-status");
+  } catch { serviceError.value = "Le service ne peut pas démarrer. Vérifiez son installation et les droits de votre compte Windows."; }
+  finally { startingService.value = false; }
+}
 
 onMounted(async () => {
   try {
-    const { ipcRenderer } = window.require("electron");
+    ipcRenderer.on("service-status-updated", updateServiceStatus);
     appVersion.value = await ipcRenderer.invoke("get-app-version");
+    serviceStatus.value = await ipcRenderer.invoke("get-service-status");
   } catch (error) {
     appVersion.value = "dev";
   }
 });
+onBeforeUnmount(() => ipcRenderer.removeListener("service-status-updated", updateServiceStatus));
 </script>
 
 <style>
+.service-health { margin-top: auto; padding-top: 20px; color: #dbe8f3; font-size: 13px; }
+.service-health small { display: block; margin-top: 5px; color: #dbe8f3; }
+.service-health + .app-version { margin-top: 12px; }
+.service-indicator { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #ffd68d; }
+.service-indicator.online { background: #88e2b8; }
+.service-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin: 16px; padding: 16px; border: 1px solid #b76b11; border-radius: 8px; background: #fff8e8; color: #653800; }
+.service-banner p { margin: 5px 0 0; }
+.service-banner button { flex-shrink: 0; padding: 10px 14px; border: 1px solid #8b5005; border-radius: 6px; background: #8b5005; color: #fff; font-weight: 600; cursor: pointer; }
+.service-banner button:disabled { opacity: .65; cursor: wait; }
+.service-banner button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 body {
   margin: 0;
   font-family: "Segoe UI", Tahoma, sans-serif;

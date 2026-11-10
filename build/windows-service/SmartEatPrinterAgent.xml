@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <id>SmartEatPrinterAgent</id>
+  <name>SmartEat Printer Agent</name>
+  <description>Moteur autonome SmartEat pour les imprimantes et terminaux locaux.</description>
+  <executable>%BASE%\node.exe</executable>
+  <startarguments>"%BASE%\supervisor.cjs"</startarguments>
+  <stopexecutable>%BASE%\node.exe</stopexecutable>
+  <stoparguments>"%BASE%\supervisor.cjs" --stop</stoparguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <env name="SMARTEAT_DATA_DIR" value="%ProgramData%\SmartEat\PrinterAgent" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <serviceaccount><user>LocalSystem</user></serviceaccount>
+  <stoptimeout>30 sec</stoptimeout>
+  <stopparentprocessfirst>true</stopparentprocessfirst>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <logpath>%ProgramData%\SmartEat\PrinterAgent\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>

@@ -50,7 +50,7 @@ test("rejects a non-zero LPR acknowledgement and cleans up", async () => {
       { host: "printer", base64Data: "AQID" },
       { createSocket: () => socket },
     ),
-    /accuse LPR 1/i,
+    (error) => error.code === "PRINTER_REJECTED" && error.printerCode === 1 && error.retryable === false,
   );
   assert.equal(socket.destroyedByClient, true);
   assert.equal(socket.writes.length, 2);
@@ -63,7 +63,7 @@ test("rejects on timeout and destroys the socket", async () => {
       { host: "printer", base64Data: "AQID", timeoutMs: 25 },
       { createSocket: () => socket },
     ),
-    /delai LPR/i,
+    /d.lai/i,
   );
   assert.equal(socket.destroyedByClient, true);
 });

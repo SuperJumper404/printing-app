@@ -16,7 +16,9 @@ git push origin main
 git push origin v1.0.1
 ```
 
-GitHub Actions installs dependencies, builds the Windows installer/portable files, then creates one GitHub release containing `latest.yml`, the installer, the installer blockmap, and the portable executable. `electron-updater` reads `latest.yml` from GitHub Releases.
+GitHub Actions verifies the app and builds the Windows installer with its autonomous service and bundled Node runtime. The release contains `latest.yml`, the installer and its blockmap. A portable executable is no longer distributed: the Windows service requires an installed, protected application directory. `electron-updater` reads `latest.yml` from GitHub Releases.
+
+The workflow uses Node 22.13.1, matching the validated bundled runtime and its checked-in license. Manual workflow runs require the requested version to match the committed `package.json`. Existing releases, including drafts being prepared manually, are preserved; the workflow never deletes a release or force-moves a tag.
 
 ## Manual local build
 
@@ -27,6 +29,8 @@ npm.cmd run release:win
 ```
 
 The files are written to `dist6/`.
+
+For manual publication, first commit and push the release source. Prepare a GitHub draft for that exact commit, upload the verified installer, its blockmap and `latest.yml`, then publish the draft. Upload names must match the hyphenated names in `latest.yml` (`SmartEat-Printer-Agent-Setup-X.Y.Z.exe` and `.exe.blockmap`); the local build filenames contain spaces. Publish only after all three uploads and their checksums have been verified.
 
 Before packaging, run the complete automated verification:
 
@@ -72,4 +76,4 @@ For a multi-send acceptance test, enable two transports on one printer, send one
 
 - Do not commit `settings.json`; it can contain local/private runtime data.
 - The installed app checks for updates on startup.
-- The Windows package requests administrator rights because printer access and auto-start can require elevated permissions.
+- The installer requests administrator rights to register and protect the Windows service. The Electron companion itself runs without elevation.

@@ -104,12 +104,13 @@ test("normalizes queue, USB, COM, Bluetooth, WSD, and HID observations", () => {
   assert.equal(usbQueue.transports.windowsRaw.available, true);
   assert.equal(usbQueue.transports.windowsRaw.config.portName, "USB008");
 
-  const usbRaw = observations.find((item) => item.transports.usbRaw?.available);
+  const usbRaw = observations.find((item) => item.transports.usbRaw?.candidate);
   assert.equal(usbRaw.vendorId, "04B8");
   assert.equal(usbRaw.productId, "0E15");
   assert.equal(usbRaw.serialNumber, "SN-USB-1");
   assert.deepEqual(usbRaw.location, { portNumber: 6, hubNumber: 4 });
   assert.match(usbRaw.transports.usbRaw.reason, /autorisation/i);
+  assert.equal(usbRaw.transports.usbRaw.available, false);
 
   const usbSerial = observations.find((item) => item.transports.usbSerial?.available);
   assert.equal(usbSerial.transports.usbSerial.config.portName, "COM4");
@@ -123,10 +124,33 @@ test("normalizes queue, USB, COM, Bluetooth, WSD, and HID observations", () => {
   assert.equal(wsdQueue.transports.windowsRaw.available, true);
   assert.equal(wsdQueue.addresses[0], "192.168.1.80");
 
-  const hid = observations.find((item) => item.transports.usbHid?.available);
+  const hid = observations.find((item) => item.transports.usbHid?.candidate);
   assert.equal(hid.vendorId, "1111");
   assert.equal(hid.productId, "2222");
   assert.match(hid.transports.usbHid.reason, /autorisation/i);
+});
+
+test("ordinary Bluetooth, keyboard and USB devices are not usable printer transports", () => {
+  const observations = normalizeWindowsDiscoveryRows([
+    { source: "pnp", instanceId: "BTHENUM\\DEV_AA\\1", className: "Bluetooth", name: "POS Bluetooth printer" },
+    { source: "pnp", instanceId: "HID\\VID_1111&PID_2222\\KEY", className: "HIDClass", name: "Keyboard" },
+    { source: "pnp", instanceId: "USB\\VID_3333&PID_4444\\HUB", className: "USB", name: "USB Hub" },
+    { source: "serial", deviceId: "USB001", name: "Bad serial queue" },
+  ]);
+  assert.equal(observations.some((item) => item.transports.bluetoothGatt), false);
+  assert.equal(observations.some((item) => Object.values(item.transports).some((transport) => transport.available)), false);
+  assert.equal(observations.some((item) => item.transports.usbHid), false);
+  assert.equal(observations.some((item) => item.transports.usbSerial), false);
+});
+
+test("BLE printer candidates require explicit write service configuration", () => {
+  const [observation] = normalizeWindowsDiscoveryRows([{
+    source: "pnp", instanceId: "BTHLEDEVICE\\DEV_AA\\1", className: "Bluetooth", name: "Receipt printer BLE",
+  }]);
+  assert.equal(observation.transports.bluetoothGatt.available, false);
+  assert.equal(observation.transports.bluetoothGatt.candidate, true);
+  assert.equal(observation.transports.bluetoothGatt.config.authorized, false);
+  assert.match(observation.transports.bluetoothGatt.reason, /service/i);
 });
 
 test("does not correlate unrelated same-name Windows devices", () => {

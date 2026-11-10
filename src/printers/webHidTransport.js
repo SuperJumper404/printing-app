@@ -2,6 +2,10 @@ import hidConfig from "../../lib/printers/webHidConfig.js";
 
 const { chunkHidReports } = hidConfig;
 
+function deviceError(message, code, details = {}) {
+  return Object.assign(new Error(message), { code, retryable: false, deliveryState: "not-sent", ...details });
+}
+
 function sameHidIdentity(device, identity = {}) {
   if (identity.vendorId && Number.parseInt(identity.vendorId, 16) !== device.vendorId) return false;
   if (identity.productId && Number.parseInt(identity.productId, 16) !== device.productId) return false;
@@ -73,33 +77,71 @@ export async function authorizeHidDevice(identity = {}) {
 export async function findAuthorizedHidDevice(identity = {}) {
   if (!navigator.hid) return null;
   const devices = await navigator.hid.getDevices();
-  return devices.find((device) => sameHidIdentity(device, identity)) || null;
+  const matches = devices.filter((device) => sameHidIdentity(device, identity));
+  if (matches.length > 1) {
+    throw deviceError("Plusieurs imprimantes HID correspondent. Utilisez une file Windows distincte.", "AMBIGUOUS_DEVICE", { action: "select-unique-hid" });
+  }
+  return matches[0] || null;
 }
 
-export async function sendHidEscPos(device, config, bytes) {
+export async function sendHidEscPos(device, config, bytes, { signal } = {}) {
   if (!device) {
-    const error = new Error("Peripherique HID non autorise");
-    error.name = "NotAllowedError";
-    error.action = "authorize-hid";
-    throw error;
+    throw deviceError("Périphérique HID non autorisé", "PERMISSION_DENIED", { name: "NotAllowedError", action: "authorize-hid" });
   }
-  const selected = inspectHidDevice(device, config);
-  const reports = chunkHidReports(bytes, selected.packetSize, selected.reportId, {
-    pad: Boolean(config.padReports),
-  });
-  let openedHere = false;
+  let ownsDevice = false;
+  let writing = false;
+  const checkAbort = () => {
+    if (signal?.aborted) throw deviceError("Envoi HID annulé", "ABORTED", { name: "AbortError", deliveryState: writing ? "unknown" : "not-sent" });
+  };
+  const cleanupTasks = [];
+  const cleanup = () => {
+    if (!ownsDevice) return;
+    ownsDevice = false;
+    const task = Promise.resolve().then(() => device.close());
+    task.catch(() => {});
+    cleanupTasks.push(task);
+  };
+  let result;
+  let failure;
+  signal?.addEventListener("abort", cleanup, { once: true });
   try {
+    checkAbort();
+    let selected;
+    let reports;
+    try {
+      selected = inspectHidDevice(device, config);
+      if (!Number.isInteger(selected.reportId) || selected.reportId < 0 || selected.reportId > 255) throw new Error("Report ID HID invalide");
+      reports = chunkHidReports(bytes, selected.packetSize, selected.reportId, { pad: Boolean(config.padReports) });
+    } catch (error) { throw deviceError(error.message, "CONFIGURATION", { action: "configure-hid" }); }
     if (!device.opened) {
       await device.open();
-      openedHere = true;
     }
+    ownsDevice = true;
+    checkAbort();
     for (const report of reports) {
+      checkAbort();
+      writing = true;
       await device.sendReport(report.reportId, report.data);
+      checkAbort();
     }
-    return { reportCount: reports.length, bytesWritten: bytes.byteLength };
+    result = { reportCount: reports.length, bytesWritten: bytes.byteLength };
+  } catch (error) {
+    if (signal?.aborted) {
+      failure = deviceError("Envoi HID annulé", "ABORTED", { name: "AbortError", deliveryState: writing ? "unknown" : "not-sent" });
+    } else {
+      const denied = ["NotAllowedError", "SecurityError"].includes(error.name) || /access|denied|busy/i.test(error.message || "");
+      failure = typeof error.code === "string" && typeof error.retryable === "boolean" ? error : deviceError(error.message, denied ? "PERMISSION_DENIED" : writing ? "WRITE_FAILED" : "CONNECTION_FAILED", {
+        name: error.name, retryable: !writing && !denied && error.name === "NetworkError", deliveryState: writing ? "unknown" : "not-sent", ...(denied ? { action: "authorize-hid" } : {}),
+      });
+    }
   } finally {
-    if (openedHere) {
-      try { await device.close(); } catch {}
+    signal?.removeEventListener("abort", cleanup);
+    cleanup();
+    if ((await Promise.allSettled(cleanupTasks)).some((entry) => entry.status === "rejected")) {
+      failure ||= deviceError("Impossible de libérer le périphérique HID", "CLEANUP_FAILED", { deliveryState: writing ? "unknown" : "not-sent", action: "reconnect-hid" });
+      failure.cleanupComplete = false;
     }
   }
+  if (failure) throw failure;
+  return result;
 }

@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>Mes imprimantes</h1>
-        <p>{{ printers.length }} appareil{{ printers.length > 1 ? "s" : "" }} detecte{{ printers.length > 1 ? "s" : "" }}</p>
+        <p>{{ printers.length }} imprimante{{ printers.length > 1 ? "s" : "" }} enregistrée{{ printers.length > 1 ? "s" : "" }}</p>
       </div>
       <div class="toolbar-row">
         <button class="button primary" type="button" :disabled="loading" @click="loadPrinters(true)">
@@ -19,14 +19,14 @@
     <section class="discovery-controls" aria-label="Options de recherche">
       <label class="filter-toggle">
         <input v-model="useDiscoveryFilters" type="checkbox" @change="loadPrinters(true)" />
-        <span>Filtrer les modeles probables</span>
+        <span>Filtrer les modèles probables</span>
       </label>
       <div class="mode-controls">
         <span>Sources</span>
-        <label><input v-model="discoveryModes.bluetooth" type="checkbox" /> Bluetooth</label>
-        <label><input v-model="discoveryModes.usb" type="checkbox" /> USB</label>
-        <label><input v-model="discoveryModes.com" type="checkbox" /> COM / Windows</label>
-        <label><input v-model="discoveryModes.ipScan" type="checkbox" /> Reseau</label>
+        <label><input v-model="discoveryModes.bluetooth" type="checkbox" @change="loadPrinters(true)" /> Bluetooth</label>
+        <label><input v-model="discoveryModes.usb" type="checkbox" @change="loadPrinters(true)" /> USB</label>
+        <label><input v-model="discoveryModes.com" type="checkbox" @change="loadPrinters(true)" /> COM / Windows</label>
+        <label><input v-model="discoveryModes.ipScan" type="checkbox" @change="loadPrinters(true)" /> Réseau</label>
       </div>
     </section>
 
@@ -46,38 +46,88 @@
 
     <p v-if="pageMessage" class="page-message" role="status" aria-live="polite">{{ pageMessage }}</p>
 
-    <section v-if="loading" class="empty-state" aria-live="polite">
+    <section v-if="printers.length" ref="listControls" class="list-controls" aria-label="Affichage des imprimantes">
+      <div class="list-views" role="group" aria-label="Choisir les imprimantes à afficher">
+        <button class="view-button" :class="{ selected: !showHidden }" type="button" :aria-pressed="!showHidden" @click="showHidden = false">
+          Visibles <span>{{ printers.length - hiddenPrinterCount }}</span>
+        </button>
+        <button class="view-button" :class="{ selected: showHidden }" type="button" :aria-pressed="showHidden" @click="showHidden = true">
+          Masquées <span>{{ hiddenPrinterCount }}</span>
+        </button>
+      </div>
+      <div class="bulk-actions">
+        <button class="card-button" type="button" :disabled="!displayedPrinters.some(printer => printer.collapsed !== false)" @click="setAllCollapsed(false)">Tout déplier</button>
+        <button class="card-button" type="button" :disabled="!displayedPrinters.some(printer => printer.collapsed === false)" @click="setAllCollapsed(true)">Tout replier</button>
+      </div>
+    </section>
+    <p v-if="showHidden && hiddenPrinterCount" class="view-hint">Ces imprimantes continuent d’imprimer selon leurs réglages. Réaffichez-les pour les retrouver dans la liste principale.</p>
+
+    <section v-if="loading && printers.length === 0" class="empty-state" aria-live="polite">
       <span class="spinner" aria-hidden="true"></span>
       <p>Recherche des imprimantes et interfaces disponibles...</p>
     </section>
 
     <section v-else-if="printers.length === 0" class="empty-state">
-      <h2>Aucune imprimante detectee</h2>
-      <p>Verifiez la connexion USB, Bluetooth, COM ou reseau, puis relancez la recherche.</p>
+      <h2>Aucune imprimante détectée</h2>
+      <p>Vérifiez la connexion USB, Bluetooth, COM ou réseau, puis relancez la recherche.</p>
     </section>
 
-    <section v-else class="printer-list" aria-label="Imprimantes detectees">
-      <article v-for="printer in printers" :key="printer.id" class="printer-card">
+    <section v-else ref="printerList" class="printer-list" aria-label="Imprimantes détectées">
+      <div v-if="!displayedPrinters.length" class="empty-state filtered-empty" role="status">
+        <h2>{{ showHidden ? "Aucune imprimante masquée" : "Aucune imprimante visible" }}</h2>
+        <p>{{ showHidden ? "Les imprimantes que vous masquez apparaîtront ici." : "Vos imprimantes sont conservées dans la vue Masquées." }}</p>
+        <button v-if="!showHidden" class="button neutral" type="button" @click="showHidden = true">Voir les imprimantes masquées</button>
+      </div>
+      <article v-for="printer in displayedPrinters" :key="printer.id" class="printer-card" :class="{ 'is-collapsed': printer.collapsed !== false }">
         <header class="printer-header">
           <div class="printer-title">
-            <h2>{{ printer.name || "Imprimante inconnue" }}</h2>
-            <span class="availability" :class="{ available: hasAvailableTransport(printer) }">
-              <span class="status-dot" aria-hidden="true"></span>
-              {{ hasAvailableTransport(printer) ? "Detectee" : "Indisponible" }}
-            </span>
+            <div class="printer-name-row">
+              <h2>{{ printer.name || "Imprimante inconnue" }}</h2>
+              <button
+                class="favorite-button"
+                type="button"
+                :class="{ selected: printer.favorite }"
+                :aria-pressed="Boolean(printer.favorite)"
+                :aria-label="`${printer.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'} : ${printer.name || 'Imprimante'}`"
+                @click="toggleFavorite(printer)"
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m12 3 2.78 5.63L21 9.54l-4.5 4.39L17.56 20 12 17.08 6.44 20l1.06-6.07L3 9.54l6.22-.91Z" /></svg>
+                <span>{{ printer.favorite ? "Favori" : "Favoris" }}</span>
+              </button>
+            </div>
+            <div class="card-summary">
+              <span class="availability" :class="{ available: printer.detected !== false && hasAvailableTransport(printer) }">
+                <span class="status-dot" aria-hidden="true"></span>
+                {{ printer.detected === false ? "Hors ligne" : hasAvailableTransport(printer) ? "Détectée" : "À configurer" }}
+              </span>
+              <span>{{ enabledTransportCount(printer) }} transport{{ enabledTransportCount(printer) > 1 ? "s" : "" }} actif{{ enabledTransportCount(printer) > 1 ? "s" : "" }}</span>
+              <span v-if="printer.addresses?.length" class="printer-address" :title="printer.addresses.join(', ')">{{ printer.addresses.join(", ") }}</span>
+            </div>
           </div>
+          <div class="card-actions">
+            <button class="card-button visibility-button" type="button" :aria-label="`${printer.hidden ? 'Réafficher' : 'Masquer'} : ${printer.name || 'Imprimante'}`" @click="toggleVisibility(printer)">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /><path v-if="!printer.hidden" d="m3 3 18 18" /></svg>
+              {{ printer.hidden ? "Réafficher" : "Masquer" }}
+            </button>
+            <button class="card-button expand-button" type="button" :aria-expanded="printer.collapsed === false" :aria-controls="`printer-details-${printer.id}`" :aria-label="`${printer.collapsed === false ? 'Replier' : 'Déplier'} : ${printer.name || 'Imprimante'}`" @click="toggleCollapsed(printer)">
+              {{ printer.collapsed === false ? "Replier" : "Déplier" }}
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" :class="{ expanded: printer.collapsed === false }"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+          </div>
+        </header>
+
+        <div :id="`printer-details-${printer.id}`" v-show="printer.collapsed === false" class="printer-details">
           <dl class="identity-grid">
             <div><dt>VID / PID</dt><dd>{{ hardwareId(printer) }}</dd></div>
-            <div><dt>Serie</dt><dd>{{ printer.serialNumber || "-" }}</dd></div>
+            <div><dt>Série</dt><dd>{{ printer.serialNumber || "-" }}</dd></div>
             <div><dt>Adresse</dt><dd>{{ printer.addresses?.join(", ") || "-" }}</dd></div>
             <div><dt>Instance</dt><dd :title="printer.instanceIds?.join('\n')">{{ printer.instanceIds?.[0] || "-" }}</dd></div>
           </dl>
-        </header>
 
         <div class="printer-settings">
           <div class="printer-preferences">
             <fieldset class="ticket-types">
-              <legend>Tickets recus</legend>
+              <legend>Tickets reçus</legend>
               <label>
                 <input v-model="printer.ticketTypes.caisse" type="checkbox" @change="savePrinterConfig" />
                 Caisse
@@ -92,11 +142,11 @@
               <legend>Source du ticket</legend>
               <label>
                 <input v-model="printer.ticketSource" type="radio" value="received" @change="savePrinterConfig" />
-                Ticket recu
+                Ticket reçu
               </label>
               <label>
                 <input v-model="printer.ticketSource" type="radio" value="ticketData" @change="savePrinterConfig" />
-                Donnees ticket
+                Données ticket
               </label>
             </fieldset>
 
@@ -126,7 +176,7 @@
                   />
                 </label>
                 <label>
-                  <span>Caracteres / ligne</span>
+                  <span>Caractères / ligne</span>
                   <input
                     v-model.number="printer.charsPerLine"
                     type="number"
@@ -140,7 +190,7 @@
           </div>
 
           <div class="transport-list">
-            <h3>Transports detectes</h3>
+            <h3>Transports détectés</h3>
             <div v-for="row in visibleTransportRows(printer)" :key="row.id" class="transport-row" :class="{ unavailable: row.controlDisabled }">
               <div class="transport-summary">
                 <div>
@@ -149,28 +199,29 @@
                   <span v-if="row.reason" class="transport-reason">{{ row.reason }}</span>
                 </div>
                 <div class="transport-actions">
-                  <span v-if="printer.transports[row.id].verified" class="verified">Ticket confirme</span>
+                  <span v-if="printer.transports[row.id].verified" class="verified">Ticket confirmé</span>
                   <span
                     v-else-if="printer.testResults?.[row.id]"
                     class="test-result"
                     :class="printer.testResults[row.id].success ? 'success' : 'failure'"
                   >
-                    {{ printer.testResults[row.id].success ? "Envoi accepte" : printer.testResults[row.id].error }}
+                    {{ printer.testResults[row.id].success ? "Envoi accepté" : printer.testResults[row.id].error }}
                   </span>
                   <button
-                    v-if="['usbRaw', 'usbHid', 'bluetoothGatt'].includes(row.id)"
+                    v-if="row.canAuthorize"
                     class="authorize-button"
                     type="button"
                     :disabled="printer.authorizationPending === row.id"
                     @click="authorizeTransport(printer, row.id)"
                   >
-                    {{ printer.transports[row.id].config.authorized ? "Reautoriser" : "Autoriser" }}
+                    {{ printer.transports[row.id].config.authorized ? "Réautoriser" : "Autoriser" }}
                   </button>
                   <label class="switch" :title="row.controlDisabled ? row.reason : `Activer ${row.label}`">
                     <input
                       v-model="printer.transports[row.id].enabled"
                       type="checkbox"
                       :disabled="row.controlDisabled"
+                      :aria-label="`Activer ${row.label} pour ${printer.name}`"
                       @change="transportChanged(printer, row.id)"
                     />
                     <span class="slider"></span>
@@ -186,7 +237,7 @@
                     <select
                       v-if="field.type === 'select'"
                       v-model="printer.transports[row.id].config[field.key]"
-                      :disabled="row.controlDisabled"
+                      :disabled="row.configDisabled"
                       @change="savePrinterConfig"
                     >
                       <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
@@ -198,7 +249,7 @@
                       :min="field.min"
                       :max="field.max"
                       :placeholder="field.placeholder || field.defaultValue"
-                      :disabled="row.controlDisabled"
+                      :disabled="row.configDisabled"
                       @change="savePrinterConfig"
                     />
                   </label>
@@ -219,19 +270,23 @@
             {{ printer.testing ? "Test en cours..." : "Tester les transports actifs" }}
           </button>
         </footer>
+        </div>
       </article>
     </section>
   </main>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import {
   PRINTER_ENCODING_OPTIONS,
   TRANSPORT_PRESENTATION,
   createEmptyTransports,
+  createDiscoveryRefresh,
   getTransportRows,
+  getPrinterList,
   mergeDiscoveredAndSavedPrinters,
+  togglePrinterFavorite,
 } from "../printers/transportPresentation.mjs";
 import { authorizeUsbDevice } from "../printers/webUsbTransport";
 import { authorizeHidDevice } from "../printers/webHidTransport";
@@ -256,6 +311,26 @@ const manualPrinterIp = ref("");
 const manualPrinterPort = ref(9100);
 const addingManualPrinter = ref(false);
 const pageMessage = ref("");
+const showHidden = ref(false);
+const printerList = ref(null);
+const listControls = ref(null);
+const hiddenPrinterCount = computed(() => printers.value.filter(printer => printer.hidden).length);
+const displayedPrinters = computed(() => getPrinterList(printers.value, { hidden: showHidden.value }));
+let refreshTimer;
+let disposed = false;
+
+const discoveryRefresh = createDiscoveryRefresh({
+  getSaved: () => ipcRenderer.invoke("get-saved-printers"),
+  discover: () => ipcRenderer.invoke("discover-printers", {
+    useFilters: useDiscoveryFilters.value,
+    modes: clone(discoveryModes.value),
+  }),
+  getCurrent: () => printers.value,
+  apply: (updated) => {
+    setPrinters(updated);
+    savePrinterConfig();
+  },
+});
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -267,13 +342,57 @@ function updatePrinterCache() {
   printerCache.discoveryModes = clone(discoveryModes.value);
 }
 
-function savePrinterConfig() {
+async function savePrinterConfig() {
   updatePrinterCache();
-  ipcRenderer.send("save-printer-config", clone(printers.value));
+  try {
+    await ipcRenderer.invoke("save-printer-config", clone(printers.value.map(({ testing, testResults, authorizationPending, ...printer }) => printer)));
+  } catch {
+    pageMessage.value = "Réglages non enregistrés : le service Windows est indisponible. Démarrez le service, puis réessayez.";
+  }
+}
+
+function setPrinters(updated) {
+  const existing = new Map(printers.value.map((printer) => [printer.id, printer]));
+  printers.value = updated.map((printer) => {
+    const previous = existing.get(printer.id);
+    if (!previous) return { ...printer, testing: false, testResults: {}, authorizationPending: null };
+    const transient = { testing: previous.testing, testResults: previous.testResults, authorizationPending: previous.authorizationPending };
+    return Object.assign(previous, printer, transient);
+  });
+}
+
+function toggleFavorite(printer) {
+  setPrinters(togglePrinterFavorite(printers.value, printer.id));
+  savePrinterConfig();
+}
+
+function toggleCollapsed(printer) {
+  const collapsed = printer.collapsed !== false;
+  printer.collapsed = !collapsed;
+  savePrinterConfig();
+}
+
+function setAllCollapsed(collapsed) {
+  for (const printer of displayedPrinters.value) printer.collapsed = collapsed;
+  savePrinterConfig();
+}
+
+async function toggleVisibility(printer) {
+  const previousIndex = displayedPrinters.value.findIndex(item => item.id === printer.id);
+  printer.hidden = !printer.hidden;
+  pageMessage.value = printer.hidden
+    ? "Imprimante masquée. Retrouvez-la dans la vue Masquées. Ses réglages d’impression sont conservés."
+    : "Imprimante réaffichée dans la liste principale.";
+  savePrinterConfig();
+  await nextTick();
+  const remaining = printerList.value?.querySelectorAll(".visibility-button");
+  const nextButton = remaining?.[Math.min(previousIndex, remaining.length - 1)]
+    || listControls.value?.querySelector('[aria-pressed="true"]');
+  nextButton?.focus();
 }
 
 function visibleTransportRows(printer) {
-  const rows = getTransportRows(printer).filter((row) => row.available || row.enabled);
+  const rows = getTransportRows(printer).filter((row) => row.available || row.enabled || row.candidate);
   return rows.length ? rows : getTransportRows(printer);
 }
 
@@ -329,13 +448,23 @@ async function authorizeTransport(printer, transportId) {
       authorized: true,
     };
     printer.transports[transportId].reason = null;
+    printer.transports[transportId].available = true;
+    printer.transports[transportId].needsAuthorization = false;
     const transportLabel = { usbRaw: "USB", usbHid: "HID", bluetoothGatt: "Bluetooth" }[transportId];
-    pageMessage.value = `Peripherique ${transportLabel} autorise.`;
+    pageMessage.value = `Périphérique ${transportLabel} autorisé.`;
     savePrinterConfig();
   } catch (error) {
     printer.transports[transportId].config.authorized = false;
-    printer.transports[transportId].reason = `Autorisation USB requise : ${error.message}`;
+    printer.transports[transportId].available = false;
+    printer.transports[transportId].needsAuthorization = true;
+    const recovery = {
+      "configure-bluetooth-gatt": "Renseignez un UUID de service GATT valide dans Configuration, puis réessayez.",
+      "authorize-bluetooth-service": "Autorisez à nouveau le périphérique avec le service GATT configuré.",
+    }[error.action];
+    printer.transports[transportId].reason = recovery || "Autorisation refusée ou périphérique incompatible. Vérifiez la connexion, puis réessayez.";
     pageMessage.value = printer.transports[transportId].reason;
+    console.error("Autorisation du périphérique impossible", error);
+    savePrinterConfig();
   } finally {
     printer.authorizationPending = null;
     updatePrinterCache();
@@ -343,14 +472,9 @@ async function authorizeTransport(printer, transportId) {
 }
 
 async function loadPrinters(forceDiscovery = false) {
-  if (!forceDiscovery && printerCache.printers) {
-    printers.value = clone(printerCache.printers);
-    loading.value = false;
-    return;
-  }
+  if (disposed || purging.value || loading.value && printers.value.length > 0) return;
   if (!Object.values(discoveryModes.value).some(Boolean)) {
-    printers.value = [];
-    pageMessage.value = "Selectionnez au moins une source de recherche.";
+    pageMessage.value = "Sélectionnez au moins une source de recherche.";
     loading.value = false;
     return;
   }
@@ -358,25 +482,15 @@ async function loadPrinters(forceDiscovery = false) {
   loading.value = true;
   pageMessage.value = "";
   try {
-    const [saved, discovered] = await Promise.all([
-      ipcRenderer.invoke("get-saved-printers"),
-      ipcRenderer.invoke("discover-printers", {
-        useFilters: useDiscoveryFilters.value,
-        modes: clone(discoveryModes.value),
-      }),
-    ]);
-    printers.value = mergeDiscoveredAndSavedPrinters(discovered, saved).map((printer) => ({
-      ...printer,
-      testing: false,
-      testResults: {},
-    }));
-    savePrinterConfig();
+    await discoveryRefresh.run();
   } catch (error) {
-    console.error("Erreur decouverte imprimantes:", error);
-    pageMessage.value = `Recherche impossible : ${error.message}`;
+    console.error("Erreur découverte imprimantes:", error);
+    if (!disposed) pageMessage.value = "Recherche indisponible. Vérifiez les connexions, puis rechargez la liste.";
   } finally {
-    loading.value = false;
-    updatePrinterCache();
+    if (!disposed) {
+      loading.value = false;
+      updatePrinterCache();
+    }
   }
 }
 
@@ -393,13 +507,14 @@ async function testPrinter(printer) {
       if (!item.success) continue;
       const label = TRANSPORT_PRESENTATION.find((entry) => entry.id === item.transportId)?.label || item.transportId;
       printer.transports[item.transportId].verified = window.confirm(
-        `Le ticket imprime par ${label} est-il lisible ?`,
+        `Le ticket imprimé par ${label} est-il lisible ?`,
       );
     }
-    pageMessage.value = result.message || result.error || "Test termine.";
+    pageMessage.value = result.message || result.error || "Test terminé.";
     savePrinterConfig();
   } catch (error) {
-    pageMessage.value = `Test impossible : ${error.message}`;
+    console.error("Test de l'imprimante impossible", error);
+    pageMessage.value = "Test impossible. Vérifiez la connexion et la configuration, puis réessayez.";
   } finally {
     printer.testing = false;
     updatePrinterCache();
@@ -419,8 +534,15 @@ async function addManualPrinter() {
     pageMessage.value = "Adresse IP ou port invalide.";
     return;
   }
-  if (printers.value.some((printer) => printer.addresses?.includes(address.ip))) {
-    pageMessage.value = "Cette adresse est deja dans la liste.";
+  const matching = printers.value.filter((printer) => printer.addresses?.includes(address.ip));
+  if (matching.length > 1) {
+    pageMessage.value = "Plusieurs imprimantes utilisent cette adresse. Vérifiez leur configuration avant l'ajout.";
+    return;
+  }
+  const existing = matching[0];
+  const transportId = ({ 631: "ipp", 515: "lpr", 80: "eposHttp" })[port] || "network9100";
+  if (existing?.transports?.[transportId]?.available) {
+    pageMessage.value = "Ce service est déjà dans la liste.";
     return;
   }
 
@@ -428,11 +550,10 @@ async function addManualPrinter() {
   try {
     const online = await ipcRenderer.invoke("check-printer-online", { ip: address.ip, port });
     if (!online) {
-      pageMessage.value = `Aucun service detecte sur ${address.ip}:${port}.`;
+      pageMessage.value = `Aucun service détecté sur ${address.ip}:${port}.`;
       return;
     }
     const transports = createEmptyTransports();
-    const transportId = ({ 631: "ipp", 515: "lpr", 80: "eposHttp" })[port] || "network9100";
     const config = { host: address.ip, port };
     if (transportId === "network9100") config.timeoutMs = 15000;
     transports[transportId] = {
@@ -442,7 +563,11 @@ async function addManualPrinter() {
       config,
       reason: null,
     };
-    printers.value.unshift({
+    if (existing) {
+      existing.transports[transportId] = transports[transportId];
+      existing.detected = true;
+      existing.online = true;
+    } else printers.value.unshift({
       printerConfigVersion: 2,
       id: `manual-network-${address.ip}-${port}`,
       name: `Imprimante ${address.ip}`,
@@ -453,16 +578,22 @@ async function addManualPrinter() {
       encoding: "auto",
       escPosCodePage: null,
       charsPerLine: 48,
+      favorite: false,
+      hidden: false,
+      collapsed: true,
+      online: true,
+      detected: true,
       transports,
       observations: [],
       testResults: {},
     });
     manualPrinterIp.value = "";
     manualPrinterPort.value = 9100;
-    pageMessage.value = `Service detecte sur ${address.ip}:${port}.`;
+    pageMessage.value = `Service détecté sur ${address.ip}:${port}.`;
     savePrinterConfig();
   } catch (error) {
-    pageMessage.value = `Ajout impossible : ${error.message}`;
+    console.error("Ajout manuel de l'imprimante impossible", error);
+    pageMessage.value = "Ajout impossible. Vérifiez l'adresse et le port, puis réessayez.";
   } finally {
     addingManualPrinter.value = false;
   }
@@ -473,24 +604,46 @@ async function openDebugConsole() {
     const result = await ipcRenderer.invoke("open-debug-console");
     pageMessage.value = `Console ouverte : ${result.logPath}`;
   } catch (error) {
-    pageMessage.value = `Console indisponible : ${error.message}`;
+    console.error("Ouverture de la console impossible", error);
+    pageMessage.value = "Console indisponible. Réessayez dans quelques instants.";
   }
 }
 
 async function purgePrinterData() {
   if (!window.confirm("Supprimer les imprimantes et l'historique d'impression ?")) return;
   purging.value = true;
+  discoveryRefresh.invalidate();
   try {
     await ipcRenderer.invoke("purge-printer-data");
     printers.value = [];
     printerCache.printers = null;
-    pageMessage.value = "Donnees imprimantes purgees.";
+    pageMessage.value = "Données imprimantes purgées.";
+  } catch (error) {
+    console.error("Purge des imprimantes impossible", error);
+    pageMessage.value = "Suppression impossible. Réessayez dans quelques instants.";
   } finally {
     purging.value = false;
   }
 }
 
-onMounted(() => loadPrinters(false));
+function printersUpdated(_event, updated) {
+  if (disposed || purging.value || !Array.isArray(updated)) return;
+  setPrinters(mergeDiscoveredAndSavedPrinters(updated, printers.value));
+  updatePrinterCache();
+}
+
+onMounted(() => {
+  ipcRenderer.on("printers-updated", printersUpdated);
+  loadPrinters(true);
+  refreshTimer = window.setInterval(() => loadPrinters(true), 30000);
+});
+
+onUnmounted(() => {
+  disposed = true;
+  window.clearInterval(refreshTimer);
+  discoveryRefresh.dispose();
+  ipcRenderer.removeListener("printers-updated", printersUpdated);
+});
 </script>
 
 <style scoped>
@@ -594,6 +747,10 @@ h1 {
 }
 
 .button:focus-visible,
+.favorite-button:focus-visible,
+.card-button:focus-visible,
+.view-button:focus-visible,
+.authorize-button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 summary:focus-visible {
@@ -743,14 +900,44 @@ select:disabled {
 }
 
 .printer-title {
-  min-width: 220px;
+  min-width: 0;
+  flex: 1;
 }
+
+.list-controls, .list-views, .bulk-actions, .card-actions, .card-summary { display: flex; align-items: center; }
+.list-controls { justify-content: space-between; gap: 16px; margin-top: 24px; flex-wrap: wrap; }
+.list-views, .bulk-actions, .card-actions { gap: 8px; }
+.view-button, .card-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; border: 1px solid #b8c2cf; border-radius: 6px; padding: 8px 11px; color: #465165; background: #fff; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.view-button span { font-variant-numeric: tabular-nums; }
+.view-button.selected { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; }
+.view-button:hover, .card-button:hover:not(:disabled) { background: #f1f5f9; }
+.card-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.card-button svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.expand-button { min-width: 98px; }
+.expand-button svg { transition: transform 160ms ease-out; }
+.expand-button svg.expanded { transform: rotate(180deg); }
+.card-actions { flex-shrink: 0; }
+.card-summary { gap: 8px 16px; flex-wrap: wrap; margin-top: 10px; color: #5d6779; font-size: 13px; }
+.card-summary .availability { margin-top: 0; }
+.printer-address { overflow-wrap: anywhere; }
+.view-hint { margin-top: 12px; color: #5d6779; font-size: 13px; line-height: 1.5; }
+.printer-card.is-collapsed .printer-header { border-bottom: 0; }
+.printer-details > .identity-grid { width: auto; padding: 16px 20px; border-bottom: 1px solid #e3e8ef; background: #f7f9fb; }
+.filtered-empty { margin-top: 0; padding: 24px; }
 
 .printer-title h2 {
   font-size: 19px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
+
+.printer-name-row { display: flex; align-items: flex-start; gap: 12px; }
+.printer-name-row h2 { min-width: 0; }
+.favorite-button { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; min-height: 34px; padding: 5px 8px; border: 1px solid #b8c2cf; border-radius: 6px; color: #465165; background: #fff; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.favorite-button svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+.favorite-button:hover { background: #f1f5f9; }
+.favorite-button.selected { color: #805400; border-color: #bd8b20; background: #fff8e7; }
+.favorite-button.selected svg { fill: #f3c767; }
 
 .availability {
   display: inline-flex;
@@ -852,6 +1039,7 @@ select:disabled {
 .slider { position: absolute; inset: 0; border-radius: 12px; background: #aeb8c5; cursor: pointer; transition: background 160ms ease-out; }
 .slider::before { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(23, 32, 51, 0.28); transition: transform 160ms ease-out; }
 .switch input:checked + .slider { background: #087f5b; }
+.switch input:focus-visible + .slider { outline: 3px solid rgba(37, 99, 235, 0.5); outline-offset: 2px; }
 .switch input:checked + .slider::before { transform: translateX(20px); }
 .switch input:disabled + .slider { cursor: not-allowed; opacity: 0.45; }
 
@@ -879,6 +1067,11 @@ select:disabled {
   .identity-grid { grid-template-columns: 1fr 1fr; }
   .transport-actions { justify-content: space-between; min-width: 0; }
   .printer-footer .button { width: 100%; }
+  .printer-header { gap: 16px; }
+  .card-actions .card-button { flex: 1; min-height: 44px; }
+  .list-controls { align-items: stretch; }
+  .bulk-actions { margin-left: auto; }
+  .printer-name-row { flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {

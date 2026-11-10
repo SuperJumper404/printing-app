@@ -1,7 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
+const { EventEmitter } = require("node:events");
+const { registerPrinterTestIpc } = require("../../lib/printers/testIpc");
+const { migratePrinterConfigurations } = require("../../lib/printers/configMigration");
+const { testPrinterTransports } = require("../../lib/printers/dispatch");
+const { resolvePrinterProfile } = require("../../lib/printers/printerProfiles");
 
 const { buildPrinterTestPayload } = require("../../lib/printers/testTicket");
 
@@ -44,11 +47,20 @@ test("test ticket contains printer identity, profile, routing, and character sam
   assert.deepEqual(bytes.subarray(-3), Buffer.from([0x1d, 0x56, 0x00]));
 });
 
-test("printer test handler builds the diagnostic from the complete printer", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../../index.js"), "utf8");
-
-  assert.match(
-    source,
-    /testPrinterTransports\(\s*currentPrinter,\s*buildTestPayload\(currentPrinter\)/,
-  );
+test("printer test handler builds the diagnostic from the complete printer", async () => {
+  const ipc = new EventEmitter(); const handlers = new Map();
+  ipc.handle = (name, run) => handlers.set(name, run);
+  let printed;
+  registerPrinterTestIpc({ ipc,
+    getPrinters: () => [{ id: "counter", printerConfigVersion: 2, name: "Caisse principale", manufacturer: "Epson", model: "TM-T88VI", ticketTypes: { cuisine: true }, transports: { windowsRaw: { enabled: true, config: { printerName: "Queue" } } } }],
+    migratePrinters: migratePrinterConfigurations, testPrinterTransports,
+    buildPayload: printer => buildPrinterTestPayload(printer, resolvePrinterProfile(printer)),
+    senders: { windowsRaw: { send: async ({ base64Data }) => { printed = Buffer.from(base64Data, "base64").toString("latin1"); } } }, label: id => id,
+  });
+  const result = await handlers.get("test-printer-protocols")({}, { id: "counter" });
+  assert.equal(result.success, true);
+  assert.match(printed, /Nom: Caisse principale/);
+  assert.match(printed, /Fabricant: Epson/);
+  assert.match(printed, /Modele: TM-T88VI/);
+  assert.match(printed, /Tickets: caisse=non, cuisine=oui/);
 });

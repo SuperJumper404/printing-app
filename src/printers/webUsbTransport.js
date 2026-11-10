@@ -2,6 +2,10 @@ import usbConfig from "../../lib/printers/webUsbConfig.js";
 
 const { selectUsbBulkOutEndpoint } = usbConfig;
 
+function deviceError(message, code, details = {}) {
+  return Object.assign(new Error(message), { code, retryable: false, deliveryState: "not-sent", ...details });
+}
+
 function sameUsbIdentity(device, identity = {}) {
   if (identity.vendorId && Number.parseInt(identity.vendorId, 16) !== device.vendorId) return false;
   if (identity.productId && Number.parseInt(identity.productId, 16) !== device.productId) return false;
@@ -50,46 +54,96 @@ export async function authorizeUsbDevice(identity = {}) {
 export async function findAuthorizedUsbDevice(identity = {}) {
   if (!navigator.usb) return null;
   const devices = await navigator.usb.getDevices();
-  return devices.find((device) => sameUsbIdentity(device, identity)) || null;
+  const matches = devices.filter((device) => sameUsbIdentity(device, identity));
+  if (matches.length > 1) {
+    throw deviceError("Plusieurs imprimantes USB correspondent. Choisissez un numéro de série ou une file Windows distincte.", "AMBIGUOUS_DEVICE", { action: "select-unique-usb" });
+  }
+  return matches[0] || null;
 }
 
-export async function sendUsbEscPos(device, config, bytes) {
+export async function sendUsbEscPos(device, config, bytes, { signal } = {}) {
   if (!device) {
-    const error = new Error("Peripherique USB non autorise");
-    error.name = "NotAllowedError";
-    error.action = "authorize-usb";
-    throw error;
+    throw deviceError("Périphérique USB non autorisé", "PERMISSION_DENIED", { name: "NotAllowedError", action: "authorize-usb" });
   }
-  let openedHere = false;
+  let ownsDevice = false;
   let claimed = false;
-  const endpoint = inspectUsbDevice(device, config);
+  let writing = false;
+  let endpoint;
+  const checkAbort = () => {
+    if (signal?.aborted) throw deviceError("Envoi USB annulé", "ABORTED", { name: "AbortError", deliveryState: writing ? "unknown" : "not-sent" });
+  };
+  const cleanupTasks = [];
+  const trackCleanup = (task) => {
+    cleanupTasks.push(task);
+    // Cancellation can begin cleanup while the native write is still pending.
+    task.catch(() => {});
+    return task;
+  };
+  const cleanup = () => {
+    let releasing;
+    if (claimed) {
+      claimed = false;
+      releasing = trackCleanup(Promise.resolve().then(() => device.releaseInterface(endpoint.interfaceNumber)));
+    }
+    if (ownsDevice) {
+      ownsDevice = false;
+      // Close also interrupts a pending transfer. Acknowledgement still waits for that transfer.
+      const beforeClose = signal?.aborted ? Promise.resolve() : Promise.resolve(releasing).catch(() => {});
+      trackCleanup(beforeClose.then(() => device.close()));
+    }
+  };
+  let failure;
+  let result;
+  signal?.addEventListener("abort", cleanup, { once: true });
   try {
+    checkAbort();
+    try { endpoint = inspectUsbDevice(device, config); }
+    catch (error) { throw deviceError(error.message, "CONFIGURATION", { action: "configure-usb" }); }
     if (!device.opened) {
       await device.open();
-      openedHere = true;
     }
+    ownsDevice = true;
+    checkAbort();
     if (!device.configuration || device.configuration.configurationValue !== endpoint.configurationValue) {
       await device.selectConfiguration(endpoint.configurationValue);
+      checkAbort();
     }
     await device.claimInterface(endpoint.interfaceNumber);
     claimed = true;
+    checkAbort();
     if (endpoint.alternateSetting) {
       await device.selectAlternateInterface(endpoint.interfaceNumber, endpoint.alternateSetting);
+      checkAbort();
     }
-    const result = await device.transferOut(endpoint.endpointNumber, bytes);
-    if (result.status !== "ok") throw new Error(`Ecriture USB refusee: ${result.status}`);
-    return { bytesWritten: result.bytesWritten ?? bytes.byteLength, config: endpoint };
+    writing = true;
+    const transfer = await device.transferOut(endpoint.endpointNumber, bytes);
+    checkAbort();
+    if (transfer.status !== "ok") throw deviceError(`Écriture USB refusée : ${transfer.status}`, "WRITE_FAILED", { deliveryState: "unknown" });
+    if (transfer.bytesWritten !== bytes.byteLength) {
+      throw deviceError("Écriture USB incomplète. Vérifiez le ticket avant de réessayer.", "PARTIAL_WRITE", { deliveryState: "unknown", bytesWritten: transfer.bytesWritten ?? null });
+    }
+    result = { bytesWritten: transfer.bytesWritten, config: endpoint };
   } catch (error) {
-    if (!error.action && /claim|access|denied|busy/i.test(error.message || "")) {
-      error.action = "release-windows-interface";
+    if (signal?.aborted) {
+      failure = deviceError("Envoi USB annulé", "ABORTED", { name: "AbortError", deliveryState: writing ? "unknown" : "not-sent" });
+    } else {
+      const denied = /claim|access|denied|busy/i.test(error.message || "") || ["SecurityError", "NotAllowedError"].includes(error.name);
+      failure = typeof error.code === "string" && typeof error.retryable === "boolean" ? error : deviceError(error.message, denied ? "PERMISSION_DENIED" : writing ? "WRITE_FAILED" : "CONNECTION_FAILED", {
+        name: error.name, retryable: !writing && !denied && ["NetworkError", "NotFoundError"].includes(error.name), deliveryState: writing ? "unknown" : "not-sent",
+      });
     }
-    throw error;
+    if (!failure.action && failure.code === "PERMISSION_DENIED") {
+      failure.action = "release-windows-interface";
+    }
   } finally {
-    if (claimed) {
-      try { await device.releaseInterface(endpoint.interfaceNumber); } catch {}
-    }
-    if (openedHere) {
-      try { await device.close(); } catch {}
+    signal?.removeEventListener("abort", cleanup);
+    cleanup();
+    const cleanupResults = await Promise.allSettled(cleanupTasks);
+    if (cleanupResults.some((entry) => entry.status === "rejected")) {
+      failure ||= deviceError("Impossible de libérer le périphérique USB", "CLEANUP_FAILED", { deliveryState: writing ? "unknown" : "not-sent", action: "reconnect-usb" });
+      failure.cleanupComplete = false;
     }
   }
+  if (failure) throw failure;
+  return result;
 }

@@ -5,7 +5,7 @@
         Bienvenue sur l'outil de gestion des imprimantes de SmartEat
       </h1>
       <br />
-      <h2 class="text-xl font-semibold">Etape 1: Installation</h2>
+      <h2 class="text-xl font-semibold">Étape 1 : Installation</h2>
 
       <h4 class="font-light">
         Voici l'ip d'écoute, veuillez la saisir dans l'onglet réglage de
@@ -27,28 +27,28 @@
         </h3>
       </div>
 
-      <h2 class="text-xl font-semibold">Etape 2: Configuration</h2>
+      <h2 class="text-xl font-semibold">Étape 2 : Configuration</h2>
 
       <h4 class="font-light">
-        La détection des imprimantes est automatique. Ne lancer une recherche
-        qu'au bout de 3 minutes sans résulat et assurez vous que vous
-        imprimantes sont bien allumées et connectées à internet
+        La liste des imprimantes s’actualise automatiquement. Vous pouvez aussi
+        lancer une recherche. Vérifiez que vos imprimantes sont allumées et
+        connectées au poste ou au réseau local.
       </h4>
       <br />
       <h4 class="font-light">
-        1. Pour chaque imprimantes vous devez choisir au minimum un types de
+        1. Pour chaque imprimante, choisissez au minimum un type de
         ticket et activer au moins un protocole d'impression en fonction de
         votre type d'imprimante
       </h4>
       <h4 class="font-light">
-        2. Les imprimantes EPSON sont recommandées. Sélectionnez HTTP (80)
+        2. Activez les connexions compatibles avec votre imprimante.
       </h4>
       <h4 class="font-light">
-        3. Pour les imprimantes thermiques normales -> ESC/POS 9100
+        3. Les protocoles activés sont utilisés l’un après l’autre.
       </h4>
       <h4 class="font-light">
-        Important: Il faut au minimum activer un type de ticket et un protocol
-        pour utiliser le button d'impression test.
+        Vous pouvez tester les connexions activées, puis désactiver celles
+        que vous ne souhaitez pas utiliser.
       </h4>
 
       <h2 class="text-xl font-semibold">Aide & Contact</h2>

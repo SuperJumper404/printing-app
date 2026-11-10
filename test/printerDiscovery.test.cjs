@@ -19,6 +19,8 @@ test("USB discovery includes PnP USBPRINT devices without a Windows printer queu
   assert.equal(printers[0].vendorId, "4B43");
   assert.equal(printers[0].productId, "3538");
   assert.equal(printers[0].serialNumber, "123456");
-  assert.equal(printers[0].transports.usbRaw.available, true);
+  assert.equal(printers[0].transports.usbRaw.available, false);
+  assert.equal(printers[0].transports.usbRaw.candidate, true);
+  assert.equal(printers[0].transports.usbRaw.needsAuthorization, true);
   assert.equal(printers[0].transports.usbRaw.enabled, false);
 });

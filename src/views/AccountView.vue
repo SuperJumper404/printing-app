@@ -71,7 +71,6 @@
             <!-- <p v-if="error" class="text-sm text-red-600">{{ error }}</p> -->
           </form>
         </div>
-        Email: {{ email }} - Password :{{ password }}
       </div>
       <div v-if="isConnected === true">
         <h1 class="text-2xl font-bold">Mon compte SmartEat</h1>
@@ -86,7 +85,7 @@
             @click="disconnectUser"
             class="w-40 rounded-xl mt-5 p-0 m-0 text-sm font-semibold !bg-red-100 hover:!bg-red-600 hover:!text-white"
           >
-            Se deconnecter
+            Se déconnecter
           </button>
         </div>
       </div>
@@ -122,7 +121,6 @@ async function onSubmit() {
         Authorization: `Bearer ${loginResult.data.data[0].token}`,
       },
     });
-    console.log("shopInfo", shopInfo);
     if (loginResult.data.data[0]) {
       // Sauvegarde la session utilisateur
       const currentSession = loginResult.data.data[0];
@@ -137,7 +135,6 @@ async function onSubmit() {
       isConnected.value = true;
     }
 
-    console.log("loginResult", loginResult);
   } catch (e) {
     console.error("Login error", e);
     // error.value = "Email ou mot de passe incorrect.";
@@ -146,7 +143,6 @@ async function onSubmit() {
 }
 onMounted(async () => {
   const session = await ipcRenderer.invoke("get-user-session");
-  console.log("session", session);
 
   if (session && session.email) {
     isConnected.value = true;

@@ -188,7 +188,8 @@ test("reports aggregate failure when every selected transport fails", async () =
   );
 
   assert.equal(result.success, false);
-  assert.match(result.error, /offline/);
+  assert.match(result.error, /envoyer le ticket/);
+  assert.equal(result.results[0].code, "PRINT_FAILED");
 });
 
 test("tests every enabled transport without requiring a ticket type", async () => {

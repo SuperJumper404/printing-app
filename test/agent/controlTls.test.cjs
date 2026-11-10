@@ -1,0 +1,46 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const https = require('node:https');
+const http = require('node:http');
+const { ensureControlTls } = require('../../lib/agent/controlTls');
+const { createServiceClient } = require('../../lib/desktop/serviceClient');
+
+test('authenticates the local server before sending control credentials', { skip: process.platform !== 'win32' }, async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'smarteat-tls-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const first = await ensureControlTls(dir);
+  const again = await ensureControlTls(dir);
+  assert.equal(again.certificate, first.certificate);
+  fs.writeFileSync(path.join(dir, 'control-tls.pfx'), 'interrupted certificate write');
+  const repaired = await ensureControlTls(dir);
+  assert.match(repaired.certificate, /BEGIN CERTIFICATE/);
+  assert.notEqual(repaired.certificate, first.certificate);
+  let authorized = false;
+  const server = https.createServer(first.serverOptions, (req, res) => {
+    authorized = req.headers.authorization === `Bearer ${'a'.repeat(64)}`;
+    res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: true, value: { running: true } }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const port = server.address().port;
+  fs.writeFileSync(path.join(dir, 'connection.json'), JSON.stringify({ controlPort: port, token: 'a'.repeat(64), certificate: first.certificate }));
+  const client = createServiceClient({ dataDir: dir });
+  assert.equal((await client.request('get-service-status')).running, true); assert.equal(authorized, true);
+  server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+  let leaked = false;
+  const impostor = http.createServer(req => { leaked ||= Boolean(req.headers.authorization); });
+  await new Promise(resolve => impostor.listen(port, '127.0.0.1', resolve));
+  t.after(() => { impostor.closeAllConnections(); impostor.close(); });
+  await assert.rejects(client.request('get-service-status', null, { timeoutMs: 1000 }), error => error.code === 'SERVICE_UNAVAILABLE');
+  assert.equal(leaked, false);
+  impostor.closeAllConnections(); await new Promise(resolve => impostor.close(resolve));
+  const other = await ensureControlTls(path.join(dir, 'impostor'));
+  const wrongCertificateServer = https.createServer(other.serverOptions, (req, res) => { leaked ||= Boolean(req.headers.authorization); res.end('{}'); });
+  await new Promise(resolve => wrongCertificateServer.listen(port, '127.0.0.1', resolve));
+  t.after(() => { wrongCertificateServer.closeAllConnections(); wrongCertificateServer.close(); });
+  await assert.rejects(client.request('get-service-status', null, { timeoutMs: 1000 }), error => error.code === 'SERVICE_UNAVAILABLE');
+  assert.equal(leaked, false);
+});

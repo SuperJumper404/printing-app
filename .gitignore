@@ -44,3 +44,10 @@ obj/
 *.vs/
 dist6/
 *dist6/
+
+# Bundled Windows service build artifacts
+service-dist/
+service-dist.staging-*/
+service/.cache/
+!build/windows-service/
+!build/windows-service/**

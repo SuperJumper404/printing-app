@@ -26,6 +26,10 @@ test("normalizes valid Bluetooth UUIDs and rejects invalid values", () => {
   assert.throws(() => normalizeGattUuid("not-a-uuid"), /UUID/i);
 });
 
+test("accepts arbitrary 128-bit vendor GATT UUIDs without RFC version restrictions", () => {
+  assert.equal(normalizeGattUuid("0000FFE0-0000-0000-0000-000000000001"), "0000ffe0-0000-0000-0000-000000000001");
+});
+
 test("keeps detected but unpaired Bluetooth devices visible", () => {
   assert.deepEqual(describeGattAvailability({ detected: true, paired: false }), {
     available: true,

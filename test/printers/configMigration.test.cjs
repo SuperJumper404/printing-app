@@ -161,3 +161,34 @@ test("defaults printer source to received and preserves ticketData", () => {
   assert.equal(legacy.ticketSource, "received");
   assert.equal(saved.ticketSource, "ticketData");
 });
+
+test("does not turn Windows USB, WSD or network queue ports into serial transports", () => {
+  for (const portName of ["USB001", "WSD-abcd", "192.168.2.20", "COM0", "COM3junk"]) {
+    const [printer] = migratePrinterConfigurations([{
+      portName, protocols: { localSerial: true }, availableProtocols: { localSerial: true },
+    }]);
+    assert.equal(printer.transports.usbSerial.available, false, portName);
+    assert.equal(printer.transports.usbSerial.enabled, false, portName);
+    assert.equal(printer.transports.usbSerial.config.portName, null, portName);
+  }
+});
+
+test("normalizes a real COM port and preserves favorites across migration", () => {
+  const [printer] = migratePrinterConfigurations([{
+    portName: "USB001", realPortName: "com12:", favorite: true,
+    protocols: { localSerial: true },
+  }]);
+  assert.equal(printer.transports.usbSerial.config.portName, "COM12");
+  assert.equal(printer.transports.usbSerial.enabled, true);
+  assert.equal(printer.favorite, true);
+  assert.equal(createPrinterDevice({}).favorite, false);
+});
+
+test("versioned records with invalid COM endpoints cannot enable a serial path", () => {
+  const [printer] = migratePrinterConfigurations([{
+    printerConfigVersion: 2, id: "saved-invalid",
+    transports: { bluetoothSerial: { enabled: true, available: true, config: { portName: "USB002" } } },
+  }]);
+  assert.equal(printer.transports.bluetoothSerial.available, false);
+  assert.equal(printer.transports.bluetoothSerial.enabled, false);
+});

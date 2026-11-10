@@ -1,0 +1,7 @@
+{
+  "version": "2.12.0",
+  "architecture": "x64",
+  "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe",
+  "sha256": "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da",
+  "provenance": "Downloaded from the official winsw/winsw HTTPS v2.12.0 release asset on 2026-11-06. This older GitHub asset has no publisher digest and is unsigned; the SHA256 was independently calculated from that official download and is pinned here."
+}
